@@ -120,7 +120,7 @@ export const createTutorProfile = async (profileData: CreateTutorProfile): Promi
     updatedAt: now,
   };
   
-  await updateDoc(profileRef, profileWithDefaults);
+  await setDoc(profileRef, profileWithDefaults);
   return profileWithDefaults;
 };
 
