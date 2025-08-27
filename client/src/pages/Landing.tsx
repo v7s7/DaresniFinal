@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { BookingModal } from "@/components/BookingModal";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+import { BookOpen, Users, Clock, Star, ChevronRight } from "lucide-react";
 
 const subjects = [
   {
@@ -105,8 +107,24 @@ export default function Landing() {
     setShowBookingModal(true);
   };
 
-  const handleLogin = () => {
-    window.location.href = "/api/login";
+  const { signInWithGoogle } = useAuth();
+  const { toast } = useToast();
+
+  const handleLogin = async () => {
+    try {
+      await signInWithGoogle();
+      toast({
+        title: "Welcome!",
+        description: "You have been successfully signed in.",
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      toast({
+        title: "Sign in failed",
+        description: "There was an error signing you in. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
