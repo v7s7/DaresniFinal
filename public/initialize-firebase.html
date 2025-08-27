@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Initialize Firebase Database</title>
+
+        <!-- Use COMPAT builds so firebase.initializeApp / firebase.firestore() / firebase.auth() work -->
+        <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+        <style>
+            body {
+                font-family: system-ui, Arial, sans-serif;
+                padding: 24px;
+                max-width: 900px;
+                margin: 0 auto;
+            }
+            button {
+                padding: 10px 20px;
+                font-size: 16px;
+                margin: 10px 0;
+                cursor: pointer;
+            }
+            #status {
+                margin-top: 12px;
+                line-height: 1.5;
+            }
+            .ok {
+                color: #0a7a2f;
+            }
+            .err {
+                color: #b00020;
+            }
+            code {
+                background: #f5f5f5;
+                padding: 2px 6px;
+                border-radius: 4px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Firebase Database Initializer</h1>
+
+        <p>
+            Before clicking the button, make sure in Firebase Console you have:
+            <br />• Authentication → Sign-in method →
+            <strong>Email/Password: ON</strong> <br />• Authentication →
+            Settings → <strong>Authorized domains</strong> include your Replit
+            domain (e.g. <code>*.repl.co</code> or the exact URL) <br />•
+            Firestore Database created (Native mode) <br />• (Temporary dev)
+            Firestore rules allow signed-in writes.
+        </p>
+
+        <button id="initBtn">Initialize Database</button>
+        <div id="status">Ready.</div>
+
+        <script>
+            // Your Firebase configuration
+            const firebaseConfig = {
+                apiKey: "AIzaSyCwVVmdPqgH862cvpGCJTZ39r4Wq8-UAN8",
+                authDomain: "daresni-531ff.firebaseapp.com",
+                projectId: "daresni-531ff",
+                storageBucket: "daresni-531ff.firebasestorage.app",
+                messagingSenderId: "704383154634",
+                appId: "1:704383154634:web:d8c7c7260a8a757e637733",
+                measurementId: "G-ZQQKCBXXGD",
+            };
+
+            // Initialize Firebase (compat)
+            firebase.initializeApp(firebaseConfig);
+            const db = firebase.firestore();
+            const auth = firebase.auth();
+
+            // Utility: append a line to status
+            function log(line, cls) {
+                const div = document.getElementById("status");
+                const p = document.createElement("div");
+                if (cls) p.className = cls;
+                p.innerHTML = line;
+                div.appendChild(p);
+            }
+
+            async function initializeDatabase() {
+                document.getElementById("status").innerHTML = "";
+                log("Starting initialization…");
+
+                try {
+                    // Ensure Email/Password is usable (optional: set no persistence so page refresh doesn't matter)
+                    try {
+                        await auth.setPersistence(
+                            firebase.auth.Auth.Persistence.NONE,
+                        );
+                    } catch (_) {}
+
+                    // Create a temporary bootstrap sign-in so we can write Firestore (rules require auth)
+                    const BOOT_EMAIL = `bootstrap-${Date.now()}@init.local`;
+                    const BOOT_PASS = "InitPass!234";
+                    log(
+                        `Creating temporary bootstrap user: <code>${BOOT_EMAIL}</code>`,
+                    );
+                    const boot = await auth.createUserWithEmailAndPassword(
+                        BOOT_EMAIL,
+                        BOOT_PASS,
+                    );
+                    const bootUser = boot.user;
+                    await bootUser.updateProfile({
+                        displayName: "Bootstrap User",
+                    });
+                    log("Signed in as temporary bootstrap user.", "ok");
+
+                    // --- SUBJECTS SEED ---
+                    const subjects = [
+                        {
+                            id: "math",
+                            name: "Mathematics",
+                            description:
+                                "Math tutoring from basic arithmetic to advanced calculus",
+                            category: "STEM",
+                        },
+                        {
+                            id: "science",
+                            name: "Science",
+                            description: "Biology, chemistry, and physics",
+                            category: "STEM",
+                        },
+                        {
+                            id: "english",
+                            name: "English",
+                            description:
+                                "Language arts, writing, and literature",
+                            category: "Language Arts",
+                        },
+                        {
+                            id: "history",
+                            name: "History",
+                            description: "World & social studies",
+                            category: "Social Studies",
+                        },
+                        {
+                            id: "computer-science",
+                            name: "Computer Science",
+                            description: "Programming & CS concepts",
+                            category: "STEM",
+                        },
+                        {
+                            id: "spanish",
+                            name: "Spanish",
+                            description: "Spanish language learning",
+                            category: "Languages",
+                        },
+                        {
+                            id: "french",
+                            name: "French",
+                            description: "French language learning",
+                            category: "Languages",
+                        },
+                    ];
+
+                    log("Creating subjects…");
+                    for (const s of subjects) {
+                        await db
+                            .collection("subjects")
+                            .doc(s.id)
+                            .set(
+                                {
+                                    ...s,
+                                    createdAt:
+                                        firebase.firestore.FieldValue.serverTimestamp(),
+                                    updatedAt:
+                                        firebase.firestore.FieldValue.serverTimestamp(),
+                                },
+                                { merge: true },
+                            );
+                        log(`✓ ${s.name}`, "ok");
+                    }
+
+                    // --- ADMIN ACCOUNTS SEED ---
+                    const adminAccounts = [
+                        {
+                            email: "admin1@tutorconnect.com",
+                            password: "AdminPass123!",
+                            firstName: "Admin",
+                            lastName: "One",
+                        },
+                        {
+                            email: "admin2@tutorconnect.com",
+                            password: "AdminPass456!",
+                            firstName: "Admin",
+                            lastName: "Two",
+                        },
+                        {
+                            email: "admin3@tutorconnect.com",
+                            password: "AdminPass789!",
+                            firstName: "Admin",
+                            lastName: "Three",
+                        },
+                    ];
+
+                    log(
+                        "Creating admin accounts… (will skip if already exist)",
+                    );
+                    for (const a of adminAccounts) {
+                        try {
+                            const cred =
+                                await auth.createUserWithEmailAndPassword(
+                                    a.email,
+                                    a.password,
+                                );
+                            const u = cred.user;
+                            await u.updateProfile({
+                                displayName: `${a.firstName} ${a.lastName}`,
+                            });
+
+                            await db.collection("users").doc(u.uid).set(
+                                {
+                                    id: u.uid,
+                                    email: a.email,
+                                    firstName: a.firstName,
+                                    lastName: a.lastName,
+                                    profileImageUrl: null,
+                                    role: "admin",
+                                    isVerified: true,
+                                    verificationStatus: "approved",
+                                    createdAt:
+                                        firebase.firestore.FieldValue.serverTimestamp(),
+                                    updatedAt:
+                                        firebase.firestore.FieldValue.serverTimestamp(),
+                                },
+                                { merge: true },
+                            );
+
+                            log(`✓ Created admin: ${a.email}`, "ok");
+                            // Sign out that admin so we keep using bootstrap user for writes
+                            await auth.signOut();
+                            await auth.signInWithEmailAndPassword(
+                                BOOT_EMAIL,
+                                BOOT_PASS,
+                            );
+                        } catch (e) {
+                            // If already exists or any other error, report & continue
+                            log(`✗ ${a.email}: ${e.code || e.message}`, "err");
+                        }
+                    }
+
+                    log("<strong>✅ Initialization complete.</strong>", "ok");
+                    log(
+                        "<strong>Admin credentials (created if not existing):</strong>",
+                    );
+                    log("• admin1@tutorconnect.com / AdminPass123!");
+                    log("• admin2@tutorconnect.com / AdminPass456!");
+                    log("• admin3@tutorconnect.com / AdminPass789!");
+
+                    // Clean up: sign out bootstrap user
+                    await auth.signOut();
+                    log("Signed out bootstrap user.", "ok");
+                } catch (e) {
+                    log(`❌ Error: ${e.message || e}`, "err");
+                    console.error(e);
+                }
+            }
+
+            document
+                .getElementById("initBtn")
+                .addEventListener("click", initializeDatabase);
+        </script>
+    </body>
+</html>
