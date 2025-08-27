@@ -3,8 +3,11 @@ import type { ReactNode } from "react";
 import { 
   User as FirebaseUser, 
   signInWithPopup, 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  updateProfile
 } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
 import { getUser, createUser } from "@/lib/firestore";
@@ -16,6 +19,8 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -62,6 +67,60 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setFirebaseUser(firebaseUser);
     } catch (error) {
       console.error("Error signing in with Google:", error);
+      throw error;
+    }
+  };
+
+  const signInWithEmail = async (email: string, password: string) => {
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const firebaseUser = result.user;
+      
+      let userData = await getUser(firebaseUser.uid);
+      
+      if (!userData) {
+        userData = await createUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || "",
+          firstName: firebaseUser.displayName?.split(" ")[0] || null,
+          lastName: firebaseUser.displayName?.split(" ").slice(1).join(" ") || null,
+          profileImageUrl: firebaseUser.photoURL || null,
+          role: "student",
+        });
+      }
+      
+      setUser(userData);
+      setFirebaseUser(firebaseUser);
+    } catch (error) {
+      console.error("Error signing in with email:", error);
+      throw error;
+    }
+  };
+
+  const signUpWithEmail = async (email: string, password: string, firstName: string, lastName: string) => {
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      const firebaseUser = result.user;
+      
+      // Update Firebase user profile
+      await updateProfile(firebaseUser, {
+        displayName: `${firstName} ${lastName}`.trim(),
+      });
+      
+      // Create user in Firestore
+      const userData = await createUser({
+        id: firebaseUser.uid,
+        email: firebaseUser.email || "",
+        firstName,
+        lastName,
+        profileImageUrl: firebaseUser.photoURL || null,
+        role: "student",
+      });
+      
+      setUser(userData);
+      setFirebaseUser(firebaseUser);
+    } catch (error) {
+      console.error("Error signing up with email:", error);
       throw error;
     }
   };
@@ -121,6 +180,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     isLoading,
     isAuthenticated: !!user,
     signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
     signOut,
   };
 

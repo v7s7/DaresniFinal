@@ -2,8 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { AuthModal } from "@/components/AuthModal";
 import { BookOpen, Users, Clock, Star, ChevronRight } from "lucide-react";
 
 const subjects = [
@@ -99,32 +98,14 @@ const testimonials = [
 
 export default function Landing() {
   const [activeTab, setActiveTab] = useState<'student' | 'tutor' | 'admin'>('student');
-  const [showBookingModal, setShowBookingModal] = useState(false);
-  const [selectedTutor, setSelectedTutor] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const handleBookSession = (tutor: any) => {
-    setSelectedTutor(tutor);
-    setShowBookingModal(true);
+  const handleBookSession = () => {
+    setShowAuthModal(true);
   };
 
-  const { signInWithGoogle } = useAuth();
-  const { toast } = useToast();
-
-  const handleLogin = async () => {
-    try {
-      await signInWithGoogle();
-      toast({
-        title: "Welcome!",
-        description: "You have been successfully signed in.",
-      });
-    } catch (error) {
-      console.error("Login error:", error);
-      toast({
-        title: "Sign in failed",
-        description: "There was an error signing you in. Please try again.",
-        variant: "destructive",
-      });
-    }
+  const handleLogin = () => {
+    setShowAuthModal(true);
   };
 
   return (
@@ -337,7 +318,7 @@ export default function Landing() {
                   <div className="flex space-x-2">
                     <Button 
                       className="btn-primary flex-1" 
-                      onClick={() => handleBookSession(tutor)}
+                      onClick={() => handleBookSession()}
                       data-testid={`button-book-session-${tutor.id}`}
                     >
                       <i className="fas fa-calendar-plus mr-2"></i>
@@ -633,18 +614,13 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+      
+      {/* Auth Modal */}
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+      />
 
-      {/* Booking Modal */}
-      {showBookingModal && selectedTutor && (
-        <BookingModal
-          tutor={selectedTutor}
-          onClose={() => setShowBookingModal(false)}
-          onConfirm={() => {
-            setShowBookingModal(false);
-            handleLogin();
-          }}
-        />
-      )}
     </div>
   );
 }
