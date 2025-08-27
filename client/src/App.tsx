@@ -11,6 +11,7 @@ import TutorDashboard from "@/pages/TutorDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
 import TutorBrowse from "@/pages/TutorBrowse";
 import TutorProfile from "@/pages/TutorProfile";
+import AdminSetup from "@/pages/AdminSetup";
 import Navbar from "@/components/Navbar";
 
 function Router() {
@@ -51,6 +52,7 @@ function Router() {
               if (user?.role === 'tutor') return <TutorDashboard />;
               return <StudentDashboard />;
             }} />
+            <Route path="/admin/setup" component={AdminSetup} />
           </>
         )}
         <Route component={NotFound} />

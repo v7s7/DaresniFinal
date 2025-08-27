@@ -154,6 +154,15 @@ export default function Navbar() {
                   <i className="fas fa-envelope mr-2"></i>
                   Messages
                 </DropdownMenuItem>
+                {user?.role !== 'admin' && (
+                  <DropdownMenuItem 
+                    onClick={() => window.location.href = '/admin/setup'}
+                    data-testid="menu-item-become-admin"
+                  >
+                    <i className="fas fa-shield-alt mr-2"></i>
+                    Become Admin
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem data-testid="menu-item-help">
                   <i className="fas fa-question-circle mr-2"></i>
