@@ -1,121 +1,199 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-    <title>Initialize Firebase Database</title>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js"></script>
-</head>
-<body>
-    <h1>Firebase Database Initializer</h1>
-    <div id="status">Initializing...</div>
-    <button id="initBtn" style="padding: 10px 20px; font-size: 16px; margin: 10px;">Initialize Database</button>
-    
-    <script type="module">
-        // Your Firebase configuration
-        const firebaseConfig = {
-            apiKey: "AIzaSyCwVVmdPqgH862cvpGCJTZ39r4Wq8-UAN8",
-            authDomain: "daresni-531ff.firebaseapp.com",
-            projectId: "daresni-531ff",
-            storageBucket: "daresni-531ff.firebasestorage.app",
-            messagingSenderId: "704383154634",
-            appId: "1:704383154634:web:d8c7c7260a8a757e637733",
-            measurementId: "G-ZQQKCBXXGD"
-        };
+    <head>
+        <title>Initialize Firebase Database</title>
+        <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"></script>
+        <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js"></script>
+    </head>
+    <body>
+        <h1>Firebase Database Initializer</h1>
+        <div id="status">Initializing...</div>
+        <button
+            id="initBtn"
+            style="padding: 10px 20px; font-size: 16px; margin: 10px"
+        >
+            Initialize Database
+        </button>
 
-        // Initialize Firebase
-        const app = firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
+        <script type="module">
+            // Your Firebase configuration
+            const firebaseConfig = {
+                apiKey: "AIzaSyCwVVmdPqgH862cvpGCJTZ39r4Wq8-UAN8",
+                authDomain: "daresni-531ff.firebaseapp.com",
+                projectId: "daresni-531ff",
+                storageBucket: "daresni-531ff.firebasestorage.app",
+                messagingSenderId: "704383154634",
+                appId: "1:704383154634:web:d8c7c7260a8a757e637733",
+                measurementId: "G-ZQQKCBXXGD",
+            };
 
-        async function initializeDatabase() {
-            const statusDiv = document.getElementById('status');
-            statusDiv.innerHTML = 'Initializing database...';
+            // Initialize Firebase
+            const app = firebase.initializeApp(firebaseConfig);
+            const db = firebase.firestore();
+            const auth = firebase.auth();
 
-            try {
-                // Create subjects collection
-                const subjects = [
-                    { id: 'math', name: 'Mathematics', description: 'Math tutoring from basic arithmetic to advanced calculus', category: 'STEM' },
-                    { id: 'science', name: 'Science', description: 'Science tutoring including biology, chemistry, and physics', category: 'STEM' },
-                    { id: 'english', name: 'English', description: 'English language arts, writing, and literature', category: 'Language Arts' },
-                    { id: 'history', name: 'History', description: 'World history, US history, and social studies', category: 'Social Studies' },
-                    { id: 'computer-science', name: 'Computer Science', description: 'Programming, algorithms, and computer science concepts', category: 'STEM' },
-                    { id: 'spanish', name: 'Spanish', description: 'Spanish language learning and conversation', category: 'Languages' },
-                    { id: 'french', name: 'French', description: 'French language learning and conversation', category: 'Languages' }
-                ];
+            async function initializeDatabase() {
+                const statusDiv = document.getElementById("status");
+                statusDiv.innerHTML = "Initializing database...";
 
-                statusDiv.innerHTML += '<br>Creating subjects...';
-                
-                for (const subject of subjects) {
-                    await db.collection('subjects').doc(subject.id).set({
-                        ...subject,
-                        createdAt: new Date(),
-                    });
-                    console.log(`Created subject: ${subject.name}`);
-                }
+                try {
+                    // Create subjects collection
+                    const subjects = [
+                        {
+                            id: "math",
+                            name: "Mathematics",
+                            description:
+                                "Math tutoring from basic arithmetic to advanced calculus",
+                            category: "STEM",
+                        },
+                        {
+                            id: "science",
+                            name: "Science",
+                            description:
+                                "Science tutoring including biology, chemistry, and physics",
+                            category: "STEM",
+                        },
+                        {
+                            id: "english",
+                            name: "English",
+                            description:
+                                "English language arts, writing, and literature",
+                            category: "Language Arts",
+                        },
+                        {
+                            id: "history",
+                            name: "History",
+                            description:
+                                "World history, US history, and social studies",
+                            category: "Social Studies",
+                        },
+                        {
+                            id: "computer-science",
+                            name: "Computer Science",
+                            description:
+                                "Programming, algorithms, and computer science concepts",
+                            category: "STEM",
+                        },
+                        {
+                            id: "spanish",
+                            name: "Spanish",
+                            description:
+                                "Spanish language learning and conversation",
+                            category: "Languages",
+                        },
+                        {
+                            id: "french",
+                            name: "French",
+                            description:
+                                "French language learning and conversation",
+                            category: "Languages",
+                        },
+                    ];
 
-                // Create admin accounts
-                statusDiv.innerHTML += '<br>Creating admin accounts...';
-                
-                const adminAccounts = [
-                    { email: 'admin1@tutorconnect.com', password: 'AdminPass123!', firstName: 'Admin', lastName: 'One' },
-                    { email: 'admin2@tutorconnect.com', password: 'AdminPass456!', firstName: 'Admin', lastName: 'Two' },
-                    { email: 'admin3@tutorconnect.com', password: 'AdminPass789!', firstName: 'Admin', lastName: 'Three' }
-                ];
+                    statusDiv.innerHTML += "<br>Creating subjects...";
 
-                for (const admin of adminAccounts) {
-                    try {
-                        const userCredential = await auth.createUserWithEmailAndPassword(admin.email, admin.password);
-                        const user = userCredential.user;
-                        
-                        // Update profile
-                        await user.updateProfile({
-                            displayName: `${admin.firstName} ${admin.lastName}`
-                        });
-                        
-                        // Create Firestore document
-                        await db.collection('users').doc(user.uid).set({
-                            id: user.uid,
-                            email: admin.email,
-                            firstName: admin.firstName,
-                            lastName: admin.lastName,
-                            profileImageUrl: null,
-                            role: 'admin',
-                            isVerified: true,
-                            verificationStatus: 'approved',
-                            createdAt: new Date(),
-                            updatedAt: new Date()
-                        });
-                        
-                        console.log(`Created admin: ${admin.email}`);
-                        statusDiv.innerHTML += `<br>✓ Created admin: ${admin.email}`;
-                    } catch (error) {
-                        console.error(`Failed to create ${admin.email}:`, error);
-                        statusDiv.innerHTML += `<br>✗ Failed to create ${admin.email}: ${error.message}`;
+                    for (const subject of subjects) {
+                        await db
+                            .collection("subjects")
+                            .doc(subject.id)
+                            .set({
+                                ...subject,
+                                createdAt: new Date(),
+                            });
+                        console.log(`Created subject: ${subject.name}`);
                     }
+
+                    // Create admin accounts
+                    statusDiv.innerHTML += "<br>Creating admin accounts...";
+
+                    const adminAccounts = [
+                        {
+                            email: "admin1@tutorconnect.com",
+                            password: "AdminPass123!",
+                            firstName: "Admin",
+                            lastName: "One",
+                        },
+                        {
+                            email: "admin2@tutorconnect.com",
+                            password: "AdminPass456!",
+                            firstName: "Admin",
+                            lastName: "Two",
+                        },
+                        {
+                            email: "admin3@tutorconnect.com",
+                            password: "AdminPass789!",
+                            firstName: "Admin",
+                            lastName: "Three",
+                        },
+                    ];
+
+                    for (const admin of adminAccounts) {
+                        try {
+                            const userCredential =
+                                await auth.createUserWithEmailAndPassword(
+                                    admin.email,
+                                    admin.password,
+                                );
+                            const user = userCredential.user;
+
+                            // Update profile
+                            await user.updateProfile({
+                                displayName: `${admin.firstName} ${admin.lastName}`,
+                            });
+
+                            // Create Firestore document
+                            await db.collection("users").doc(user.uid).set({
+                                id: user.uid,
+                                email: admin.email,
+                                firstName: admin.firstName,
+                                lastName: admin.lastName,
+                                profileImageUrl: null,
+                                role: "admin",
+                                isVerified: true,
+                                verificationStatus: "approved",
+                                createdAt: new Date(),
+                                updatedAt: new Date(),
+                            });
+
+                            console.log(`Created admin: ${admin.email}`);
+                            statusDiv.innerHTML += `<br>✓ Created admin: ${admin.email}`;
+                        } catch (error) {
+                            console.error(
+                                `Failed to create ${admin.email}:`,
+                                error,
+                            );
+                            statusDiv.innerHTML += `<br>✗ Failed to create ${admin.email}: ${error.message}`;
+                        }
+                    }
+
+                    statusDiv.innerHTML +=
+                        "<br><br><strong>✅ Database initialization completed!</strong>";
+                    statusDiv.innerHTML +=
+                        "<br><br><strong>Admin Login Credentials:</strong>";
+                    statusDiv.innerHTML +=
+                        "<br>• admin1@tutorconnect.com / AdminPass123!";
+                    statusDiv.innerHTML +=
+                        "<br>• admin2@tutorconnect.com / AdminPass456!";
+                    statusDiv.innerHTML +=
+                        "<br>• admin3@tutorconnect.com / AdminPass789!";
+                } catch (error) {
+                    console.error("Error initializing database:", error);
+                    statusDiv.innerHTML += `<br>❌ Error: ${error.message}`;
                 }
-
-                statusDiv.innerHTML += '<br><br><strong>✅ Database initialization completed!</strong>';
-                statusDiv.innerHTML += '<br><br><strong>Admin Login Credentials:</strong>';
-                statusDiv.innerHTML += '<br>• admin1@tutorconnect.com / AdminPass123!';
-                statusDiv.innerHTML += '<br>• admin2@tutorconnect.com / AdminPass456!';
-                statusDiv.innerHTML += '<br>• admin3@tutorconnect.com / AdminPass789!';
-                
-            } catch (error) {
-                console.error('Error initializing database:', error);
-                statusDiv.innerHTML += `<br>❌ Error: ${error.message}`;
             }
-        }
 
-        document.getElementById('initBtn').addEventListener('click', initializeDatabase);
-        
-        // Show instructions
-        document.getElementById('status').innerHTML = `
+            document
+                .getElementById("initBtn")
+                .addEventListener("click", initializeDatabase);
+
+            // Show instructions
+            document.getElementById("status").innerHTML = `
             <h2>Ready to Initialize!</h2>
             <p>✓ Firebase configuration is set up for your project: daresni-531ff</p>
             <p>✓ Click the "Initialize Database" button below</p>
             <p>✓ This will create the subjects collection and admin accounts</p>
         `;
-    </script>
-</body>
+        </script>
+    </body>
 </html>
