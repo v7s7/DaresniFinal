@@ -7,6 +7,16 @@ export interface User {
   lastName: string | null;
   profileImageUrl: string | null;
   role: 'student' | 'tutor' | 'admin';
+  // Tutor-specific fields for enhanced sign-up
+  phone?: string;
+  education?: string;
+  experience?: string;
+  bio?: string;
+  hourlyRate?: string;
+  linkedinProfile?: string;
+  certifications?: string;
+  isVerified?: boolean;
+  verificationStatus?: 'pending' | 'approved' | 'rejected';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -90,7 +100,18 @@ export interface FileUpload {
 }
 
 // Form types for creating/updating records
-export type CreateUser = Omit<User, 'createdAt' | 'updatedAt'>;
+export type CreateUser = Omit<User, 'createdAt' | 'updatedAt'> & {
+  // Make tutor fields explicitly optional for creation
+  phone?: string;
+  education?: string;
+  experience?: string;
+  bio?: string;
+  hourlyRate?: string;
+  linkedinProfile?: string;
+  certifications?: string;
+  isVerified?: boolean;
+  verificationStatus?: 'pending' | 'approved' | 'rejected';
+};
 export type UpdateUser = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>;
 
 export type CreateSubject = Omit<Subject, 'id' | 'createdAt'>;

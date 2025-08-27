@@ -11,7 +11,7 @@ import {
 } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
 import { getUser, createUser } from "@/lib/firestore";
-import type { User } from "@shared/types";
+import type { User, CreateUser } from "@shared/types";
 
 interface AuthContextType {
   user: User | null;
@@ -20,7 +20,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, firstName: string, lastName: string, role?: string, additionalData?: any) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -97,7 +97,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  const signUpWithEmail = async (email: string, password: string, firstName: string, lastName: string) => {
+  const signUpWithEmail = async (email: string, password: string, firstName: string, lastName: string, role = "student", additionalData: any = {}) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       const firebaseUser = result.user;
@@ -107,15 +107,31 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         displayName: `${firstName} ${lastName}`.trim(),
       });
       
-      // Create user in Firestore
-      const userData = await createUser({
+      // Create user data object
+      const createUserData: CreateUser = {
         id: firebaseUser.uid,
         email: firebaseUser.email || "",
         firstName,
         lastName,
         profileImageUrl: firebaseUser.photoURL || null,
-        role: "student",
-      });
+        role: role as 'student' | 'tutor' | 'admin',
+      };
+      
+      // Add tutor-specific fields if role is tutor
+      if (role === "tutor" && additionalData) {
+        createUserData.phone = additionalData.phone || "";
+        createUserData.education = additionalData.education || "";
+        createUserData.experience = additionalData.experience || "";
+        createUserData.bio = additionalData.bio || "";
+        createUserData.hourlyRate = additionalData.hourlyRate || "";
+        createUserData.linkedinProfile = additionalData.linkedinProfile || "";
+        createUserData.certifications = additionalData.certifications || "";
+        createUserData.isVerified = false; // Tutors need manual verification
+        createUserData.verificationStatus = "pending" as const;
+      }
+      
+      // Create user in Firestore
+      const userData = await createUser(createUserData);
       
       setUser(userData);
       setFirebaseUser(firebaseUser);

@@ -39,6 +39,18 @@ function Router() {
             }} />
             <Route path="/tutors" component={TutorBrowse} />
             <Route path="/tutor/:id" component={TutorProfile} />
+            <Route path="/profile" component={() => {
+              if (user?.role === 'tutor') return <TutorDashboard />;
+              return <StudentDashboard />;
+            }} />
+            <Route path="/sessions" component={() => {
+              if (user?.role === 'tutor') return <TutorDashboard />;
+              return <StudentDashboard />;
+            }} />
+            <Route path="/messages" component={() => {
+              if (user?.role === 'tutor') return <TutorDashboard />;
+              return <StudentDashboard />;
+            }} />
           </>
         )}
         <Route component={NotFound} />
