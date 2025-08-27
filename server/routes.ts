@@ -1,8 +1,24 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Note: Using Firebase for authentication, no server-side auth needed
+  
+  // Serve the Firebase initialization page
+  app.get("/initialize-firebase.html", (req, res) => {
+    const initFilePath = path.join(__dirname, "../initialize-firebase.html");
+    if (fs.existsSync(initFilePath)) {
+      res.sendFile(initFilePath);
+    } else {
+      res.status(404).send("Initialization file not found");
+    }
+  });
   
   // Simple health check - Firebase handles auth on frontend
   app.get('/api/health', async (req, res) => {
