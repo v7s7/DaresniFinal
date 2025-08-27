@@ -25,25 +25,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin setup route - for initial admin setup only
-  app.post('/api/admin/setup', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = (req.user as any).claims.sub;
-      const user = await storage.getUser(userId);
-      
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      
-      // Simple check - update user to admin role
-      await storage.updateUser(userId, { role: 'admin' });
-      
-      res.json({ message: "Admin access granted successfully" });
-    } catch (error) {
-      console.error("Error setting up admin:", error);
-      res.status(500).json({ message: "Failed to setup admin access" });
-    }
-  });
 
   // Subject routes
   app.get('/api/subjects', async (req, res) => {
