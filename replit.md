@@ -1,0 +1,88 @@
+# Overview
+
+This is a comprehensive online tutoring system built with React.js and Express.js, designed to connect students with verified tutors for scheduled learning sessions. The platform supports user authentication, session booking, real-time messaging, file uploads, and administrative oversight. Students can browse and book tutors across various subjects, while tutors can manage their profiles and schedules. Administrators oversee tutor verification and platform management.
+
+# User Preferences
+
+Preferred communication style: Simple, everyday language.
+
+# System Architecture
+
+## Frontend Architecture
+- **React.js with TypeScript**: Component-based architecture using functional components with hooks
+- **Wouter**: Lightweight routing solution for client-side navigation
+- **Tailwind CSS + Shadcn/UI**: Utility-first styling with pre-built component library for consistent design
+- **React Query (@tanstack/react-query)**: Server state management with caching, synchronization, and optimistic updates
+- **React Hook Form + Zod**: Form handling with runtime validation and type safety
+- **Vite**: Fast build tool and development server with hot module replacement
+
+## Backend Architecture
+- **Express.js**: RESTful API server with middleware-based request processing
+- **Drizzle ORM**: Type-safe database operations with PostgreSQL dialect
+- **Session-based Authentication**: Replit Auth integration with OpenID Connect and Passport.js
+- **File Upload System**: Uppy integration with cloud storage capabilities
+- **Role-based Access Control**: Three-tier user system (student, tutor, admin) with route protection
+
+## Database Design
+- **PostgreSQL with Drizzle Schema**: Relational database with type-safe schema definitions
+- **Core Entities**: Users, subjects, tutor profiles, sessions, reviews, messages, and file uploads
+- **Relationship Management**: Foreign key constraints linking tutors to subjects, sessions to participants
+- **Session Storage**: Express sessions stored in PostgreSQL for persistent authentication
+
+## Authentication & Authorization
+- **Replit Auth**: OpenID Connect provider with OAuth2 flows
+- **Passport.js Integration**: Strategy-based authentication middleware
+- **Role-based Access**: User roles determine available features and API endpoints
+- **Protected Routes**: Frontend and backend route guards based on authentication status
+
+## Real-time Features
+- **Polling-based Messaging**: Chat system using React Query's refetch intervals
+- **Session Management**: Live session status updates and scheduling
+- **Notification System**: Toast notifications for user feedback and error handling
+
+## State Management
+- **React Query**: Server state caching and synchronization
+- **Local Component State**: React useState for UI-specific state
+- **Form State**: React Hook Form for complex form interactions
+- **Authentication State**: Custom useAuth hook wrapping user session data
+
+# External Dependencies
+
+## Core Framework Dependencies
+- **@neondatabase/serverless**: PostgreSQL connection driver for serverless environments
+- **@radix-ui/***: Headless UI components for accessibility and customization
+- **@tanstack/react-query**: Server state management and data fetching
+- **wouter**: Lightweight React routing library
+
+## Development & Build Tools
+- **Vite**: Frontend build tool and development server
+- **TypeScript**: Static type checking and enhanced developer experience
+- **Drizzle Kit**: Database schema management and migration tools
+- **ESBuild**: Fast JavaScript bundler for production builds
+
+## UI & Styling
+- **Tailwind CSS**: Utility-first CSS framework
+- **Shadcn/UI**: Pre-built component library built on Radix UI
+- **Lucide React**: Icon library for consistent iconography
+- **Class Variance Authority**: Utility for creating variant-based component APIs
+
+## File Management
+- **Uppy**: File upload solution with dashboard interface
+- **Google Cloud Storage**: Cloud storage backend for file uploads
+- **@uppy/aws-s3**: S3-compatible storage adapter
+
+## Authentication & Session Management
+- **Passport.js**: Authentication middleware for Express
+- **OpenID Client**: OAuth2/OpenID Connect client implementation
+- **Express Session**: Session management middleware
+- **Connect PG Simple**: PostgreSQL session store
+
+## Form Handling & Validation
+- **React Hook Form**: Performant form library with minimal re-renders
+- **@hookform/resolvers**: Integration with validation libraries
+- **Zod**: TypeScript-first schema validation
+
+## Database & ORM
+- **Drizzle ORM**: Type-safe database toolkit
+- **pg**: PostgreSQL client library
+- **ws**: WebSocket library for database connections

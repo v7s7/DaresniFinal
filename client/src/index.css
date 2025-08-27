@@ -1,0 +1,432 @@
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(210 8% 20%);
+  --card: hsl(180 6.6667% 97.0588%);
+  --card-foreground: hsl(210 8% 20%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(210 8% 20%);
+  --primary: hsl(348 83% 35%);
+  --primary-foreground: hsl(0 0% 98%);
+  --primary-dark: hsl(348 68% 29%);
+  --secondary: hsl(210 14% 97%);
+  --secondary-foreground: hsl(210 8% 20%);
+  --muted: hsl(210 14% 97%);
+  --muted-foreground: hsl(210 8% 45%);
+  --accent: hsl(207 89% 95%);
+  --accent-foreground: hsl(210 8% 20%);
+  --destructive: hsl(356.3033 90.5579% 54.3137%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(210 14% 89%);
+  --input: hsl(210 14% 89%);
+  --ring: hsl(348 83% 35%);
+  --success: hsl(142 71% 45%);
+  --chart-1: hsl(348 83% 35%);
+  --chart-2: hsl(159.7826 100% 36.0784%);
+  --chart-3: hsl(42.0290 92.8251% 56.2745%);
+  --chart-4: hsl(147.1429 78.5047% 41.9608%);
+  --chart-5: hsl(341.4894 75.2000% 50.9804%);
+  --sidebar: hsl(180 6.6667% 97.0588%);
+  --sidebar-foreground: hsl(210 8% 20%);
+  --sidebar-primary: hsl(348 83% 35%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(207 89% 95%);
+  --sidebar-accent-foreground: hsl(348 83% 35%);
+  --sidebar-border: hsl(210 14% 89%);
+  --sidebar-ring: hsl(348 83% 35%);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, monospace;
+  --radius: 0.5rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(348 83% 35% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(348 83% 35% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 1px 2px -1px hsl(348 83% 35% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 1px 2px -1px hsl(348 83% 35% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 2px 4px -1px hsl(348 83% 35% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 4px 6px -1px hsl(348 83% 35% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 8px 10px -1px hsl(348 83% 35% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(348 83% 35% / 0.00);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+.dark {
+  --background: hsl(0 0% 0%);
+  --foreground: hsl(200 6.6667% 91.1765%);
+  --card: hsl(228 9.8039% 10%);
+  --card-foreground: hsl(0 0% 85.0980%);
+  --popover: hsl(0 0% 0%);
+  --popover-foreground: hsl(200 6.6667% 91.1765%);
+  --primary: hsl(348 83% 35%);
+  --primary-foreground: hsl(0 0% 100%);
+  --primary-dark: hsl(348 68% 29%);
+  --secondary: hsl(195.0000 15.3846% 94.9020%);
+  --secondary-foreground: hsl(210 8% 20%);
+  --muted: hsl(0 0% 9.4118%);
+  --muted-foreground: hsl(210 3.3898% 46.2745%);
+  --accent: hsl(205.7143 70% 7.8431%);
+  --accent-foreground: hsl(348 83% 35%);
+  --destructive: hsl(356.3033 90.5579% 54.3137%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(210 5.2632% 14.9020%);
+  --input: hsl(207.6923 27.6596% 18.4314%);
+  --ring: hsl(348 83% 35%);
+  --chart-1: hsl(348 83% 35%);
+  --chart-2: hsl(159.7826 100% 36.0784%);
+  --chart-3: hsl(42.0290 92.8251% 56.2745%);
+  --chart-4: hsl(147.1429 78.5047% 41.9608%);
+  --chart-5: hsl(341.4894 75.2000% 50.9804%);
+  --sidebar: hsl(228 9.8039% 10%);
+  --sidebar-foreground: hsl(0 0% 85.0980%);
+  --sidebar-primary: hsl(348 83% 35%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(205.7143 70% 7.8431%);
+  --sidebar-accent-foreground: hsl(348 83% 35%);
+  --sidebar-border: hsl(205.7143 15.7895% 26.0784%);
+  --sidebar-ring: hsl(348 83% 35%);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, monospace;
+  --radius: 0.5rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(348 83% 35% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(348 83% 35% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 1px 2px -1px hsl(348 83% 35% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 1px 2px -1px hsl(348 83% 35% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 2px 4px -1px hsl(348 83% 35% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 4px 6px -1px hsl(348 83% 35% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(348 83% 35% / 0.00), 0px 8px 10px -1px hsl(348 83% 35% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(348 83% 35% / 0.00);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+/* Custom TutorConnect Styles */
+.gradient-header {
+  background: linear-gradient(135deg, #9B1B30 0%, #7a1625 100%);
+}
+
+.hero-gradient {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e3f2fd 100%);
+}
+
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.tab-active {
+  background: #9B1B30;
+  color: white;
+}
+
+.btn-primary {
+  background: #9B1B30;
+  color: white;
+  transition: background 0.3s ease;
+}
+
+.btn-primary:hover {
+  background: #7a1625;
+}
+
+/* Line clamp utility */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Smooth animations */
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Success color matching the design */
+.text-success {
+  color: var(--success);
+}
+
+.bg-success {
+  background-color: var(--success);
+}
+
+/* Uppy file uploader styles */
+.uppy-Dashboard {
+  --uppy-c-green: var(--primary);
+  --uppy-c-blue: var(--primary);
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark);
+}
+
+/* Responsive font sizes */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 2rem;
+  }
+  
+  h2 {
+    font-size: 1.5rem;
+  }
+  
+  .text-5xl {
+    font-size: 2.5rem;
+  }
+  
+  .text-6xl {
+    font-size: 3rem;
+  }
+}
+
+/* Enhanced focus states */
+.focus-visible:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Loading animations */
+.loading-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: .5;
+  }
+}
+
+/* Status indicators */
+.status-online {
+  @apply w-3 h-3 bg-green-500 rounded-full;
+}
+
+.status-busy {
+  @apply w-3 h-3 bg-yellow-400 rounded-full;
+}
+
+.status-offline {
+  @apply w-3 h-3 bg-gray-400 rounded-full;
+}
+
+/* Badge enhancements */
+.badge-verified {
+  @apply bg-green-100 text-green-800 border border-green-200;
+}
+
+.badge-pending {
+  @apply bg-yellow-100 text-yellow-800 border border-yellow-200;
+}
+
+/* Card shadows matching the design */
+.card-shadow {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.card-shadow-lg {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Rating stars */
+.rating-stars {
+  @apply flex text-yellow-400;
+}
+
+.rating-stars i {
+  @apply text-sm;
+}
+
+/* Message bubbles */
+.message-bubble {
+  @apply max-w-xs lg:max-w-md px-4 py-2 rounded-lg;
+}
+
+.message-bubble.own {
+  @apply bg-primary text-primary-foreground ml-auto;
+}
+
+.message-bubble.other {
+  @apply bg-muted text-muted-foreground;
+}
+
+/* Dashboard grid enhancements */
+.dashboard-grid {
+  @apply grid gap-6;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+/* Session status colors */
+.session-scheduled {
+  @apply bg-blue-100 text-blue-800;
+}
+
+.session-in-progress {
+  @apply bg-green-100 text-green-800;
+}
+
+.session-completed {
+  @apply bg-gray-100 text-gray-800;
+}
+
+.session-cancelled {
+  @apply bg-red-100 text-red-800;
+}
+
+/* Navigation enhancements */
+.nav-link.active {
+  @apply bg-white/20 text-white;
+}
+
+.nav-link:not(.active) {
+  @apply text-white/80 hover:text-white hover:bg-white/10;
+}
+
+/* Form enhancements */
+.form-section {
+  @apply space-y-6 p-6 bg-card rounded-lg border;
+}
+
+.form-group {
+  @apply space-y-2;
+}
+
+/* Profile image placeholder */
+.avatar-placeholder {
+  @apply bg-primary bg-opacity-20 text-primary;
+}
+
+/* Notification badges */
+.notification-badge {
+  @apply absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full h-5 w-5 flex items-center justify-center;
+}
+
+/* Interactive elements */
+.interactive-card {
+  @apply transition-all duration-200 ease-in-out cursor-pointer;
+}
+
+.interactive-card:hover {
+  @apply shadow-md transform -translate-y-1;
+}
+
+/* Progress bars */
+.progress-bar {
+  @apply w-full bg-muted rounded-full h-2;
+}
+
+.progress-fill {
+  @apply bg-primary h-2 rounded-full transition-all duration-300;
+}
+
+/* Calendar enhancements */
+.calendar-day.available {
+  @apply hover:bg-primary hover:bg-opacity-10 cursor-pointer;
+}
+
+.calendar-day.selected {
+  @apply bg-primary text-primary-foreground;
+}
+
+.calendar-day.disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .container {
+    @apply px-4;
+  }
+  
+  .mobile-stack {
+    @apply flex-col space-y-4 space-x-0;
+  }
+  
+  .mobile-full {
+    @apply w-full;
+  }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .card-hover {
+    transition: none;
+  }
+  
+  .card-hover:hover {
+    transform: none;
+  }
+  
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .card-hover:hover {
+    outline: 2px solid var(--foreground);
+  }
+  
+  .btn-primary {
+    border: 2px solid var(--primary-foreground);
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none;
+  }
+  
+  .print-break {
+    page-break-before: always;
+  }
+}
