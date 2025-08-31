@@ -531,7 +531,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           eq(tutorProfiles.isVerified, true)
         ));
 
-      res.json(tutors);
+      // Get subjects for each tutor
+      const tutorsWithSubjects = await Promise.all(
+        tutors.map(async (tutorData) => {
+          const tutorSubjectsData = await db
+            .select({
+              tutorSubject: tutorSubjects,
+              subject: subjects
+            })
+            .from(tutorSubjects)
+            .leftJoin(subjects, eq(tutorSubjects.subjectId, subjects.id))
+            .where(eq(tutorSubjects.tutorId, tutorData.profile.id));
+
+          return {
+            ...tutorData.profile,
+            user: tutorData.user,
+            subjects: tutorSubjectsData.map(ts => ts.subject).filter(s => s !== null)
+          };
+        })
+      );
+
+      res.json(tutorsWithSubjects);
     } catch (error) {
       console.error('Error fetching tutors:', error);
       res.status(500).json({ 

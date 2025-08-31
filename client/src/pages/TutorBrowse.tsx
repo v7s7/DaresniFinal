@@ -17,11 +17,11 @@ export default function TutorBrowse() {
   const [selectedTutor, setSelectedTutor] = useState<any>(null);
 
   const { data: tutors, isLoading: tutorsLoading } = useQuery<Array<TutorProfile & { user: User, subjects: Subject[] }>>({
-    queryKey: ["/api", "tutors"],
+    queryKey: ["/api/tutors"],
   });
 
   const { data: subjects } = useQuery<Subject[]>({
-    queryKey: ["/api", "subjects"],
+    queryKey: ["/api/subjects"],
   });
 
   const filteredTutors = Array.isArray(tutors) ? tutors.filter((tutor: any) => {
