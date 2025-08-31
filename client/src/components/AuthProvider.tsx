@@ -36,6 +36,7 @@ interface AuthContextType {
   signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   signOut: () => Promise<void>;
   getAuthToken: () => Promise<string | null>;
+  refreshUserData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -193,6 +194,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  // Refresh user data manually
+  const refreshUserData = async () => {
+    if (firebaseUser) {
+      await fetchUserData(firebaseUser);
+    }
+  };
+
   const value: AuthContextType = {
     firebaseUser,
     user,
@@ -202,6 +210,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signUpWithEmail,
     signOut,
     getAuthToken,
+    refreshUserData,
   };
 
   return (

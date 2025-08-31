@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/components/AuthProvider";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -16,7 +16,7 @@ import { BookOpen, GraduationCap, CheckCircle, Phone, DollarSign, Award, FileTex
 import type { Subject } from "@shared/schema";
 
 export default function CompleteSignup() {
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -63,11 +63,12 @@ export default function CompleteSignup() {
       return { success: true };
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/me"] });
+      // Refresh user data directly from auth context
+      await refreshUserData();
       // Small delay to ensure auth context updates
       setTimeout(() => {
         setLocation("/");
-      }, 100);
+      }, 300);
       
       toast({
         title: "Welcome to Daresni!",
