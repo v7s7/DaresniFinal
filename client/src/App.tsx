@@ -36,8 +36,8 @@ function Router() {
           // User is authenticated but not in database yet - redirect to unified signup
           <Route path="/" component={CompleteSignup} />
         ) : user && !user.role ? (
-          // User exists but hasn't chosen role - redirect to unified signup
-          <Route path="/complete-signup" component={CompleteSignup} />
+          // User exists but hasn't chosen role - show unified signup on any route
+          <Route path="*" component={CompleteSignup} />
         ) : (
           <>
             {/* Unified signup route */}
