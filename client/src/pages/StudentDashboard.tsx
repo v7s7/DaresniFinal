@@ -48,13 +48,13 @@ export default function StudentDashboard() {
     );
   }
 
-  const upcomingSessions = sessions?.filter((session: any) => 
+  const upcomingSessions = Array.isArray(sessions) ? sessions.filter((session: any) => 
     new Date(session.scheduledAt) > new Date() && session.status === 'scheduled'
-  ) || [];
+  ) : [];
 
-  const recentSessions = sessions?.filter((session: any) => 
+  const recentSessions = Array.isArray(sessions) ? sessions.filter((session: any) => 
     session.status === 'completed'
-  ).slice(0, 3) || [];
+  ).slice(0, 3) : [];
 
   const handleStartChat = (userId: string) => {
     setChatUserId(userId);
