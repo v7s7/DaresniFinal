@@ -194,6 +194,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create tutor profile (first time)
+  app.post('/api/tutors/profile', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      const profileData = updateTutorProfileSchema.parse(req.body);
+      const { subjects: subjectIds, ...tutorData } = profileData as any;
+
+      // Check if profile already exists
+      const [existingProfile] = await db
+        .select()
+        .from(tutorProfiles)
+        .where(eq(tutorProfiles.userId, user.id))
+        .limit(1);
+
+      let profile;
+      if (existingProfile) {
+        // Update existing profile if it exists
+        [profile] = await db
+          .update(tutorProfiles)
+          .set({
+            ...tutorData,
+            updatedAt: new Date()
+          })
+          .where(eq(tutorProfiles.id, existingProfile.id))
+          .returning();
+      } else {
+        // Create new profile
+        [profile] = await db
+          .insert(tutorProfiles)
+          .values({
+            userId: user.id,
+            ...tutorData
+          })
+          .returning();
+      }
+
+      // Handle subjects
+      if (subjectIds && Array.isArray(subjectIds)) {
+        // Remove existing subjects
+        await db
+          .delete(tutorSubjects)
+          .where(eq(tutorSubjects.tutorId, profile.id));
+
+        // Add new subjects
+        if (subjectIds.length > 0) {
+          await db
+            .insert(tutorSubjects)
+            .values(
+              subjectIds.map((subjectId: string) => ({
+                tutorId: profile.id,
+                subjectId,
+              }))
+            );
+        }
+      }
+
+      // Create notification and send email for new tutor registration
+      const tutorName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown';
+      
+      // Create notification
+      await db
+        .insert(notifications)
+        .values({
+          type: 'TUTOR_REGISTERED',
+          title: 'New tutor registered',
+          body: `${tutorName} (${user.email})`,
+          data: { userId: user.id },
+          audience: 'admin',
+        });
+
+      // Send email to admins
+      try {
+        const emailContent = createTutorRegistrationEmail(tutorName, user.email);
+        await sendToAdmins(emailContent.subject, emailContent.html, emailContent.text);
+      } catch (emailError) {
+        console.error('Failed to send admin notification email:', emailError);
+        // Don't fail the request if email fails
+      }
+
+      // Return created profile with user data
+      const response = await db
+        .select({
+          profile: tutorProfiles,
+          user: users
+        })
+        .from(tutorProfiles)
+        .leftJoin(users, eq(tutorProfiles.userId, users.id))
+        .where(eq(tutorProfiles.id, profile.id))
+        .limit(1);
+
+      res.json(response[0]);
+    } catch (error) {
+      console.error('Error creating tutor profile:', error);
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ 
+          message: 'Invalid request data', 
+          fieldErrors: error.flatten().fieldErrors 
+        });
+      } else {
+        res.status(500).json({ 
+          message: 'Failed to create tutor profile', 
+          fieldErrors: {} 
+        });
+      }
+    }
+  });
+
   // Update own tutor profile
   app.put('/api/tutors/profile', requireUser, async (req, res) => {
     try {

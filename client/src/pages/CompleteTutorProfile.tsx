@@ -52,7 +52,7 @@ export default function CompleteTutorProfile() {
   const updateProfileMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       return apiRequest("/api/tutors/profile", {
-        method: "PUT",
+        method: "POST",
         body: JSON.stringify(data),
       });
     },
