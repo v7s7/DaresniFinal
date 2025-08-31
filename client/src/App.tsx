@@ -11,8 +11,7 @@ import TutorDashboard from "@/pages/TutorDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
 import TutorBrowse from "@/pages/TutorBrowse";
 import TutorProfile from "@/pages/TutorProfile";
-import ChooseRole from "@/pages/ChooseRole";
-import CompleteTutorProfile from "@/pages/CompleteTutorProfile";
+import CompleteSignup from "@/pages/CompleteSignup";
 import Navbar from "@/components/Navbar";
 
 function Router() {
@@ -34,18 +33,15 @@ function Router() {
         {!isAuthenticated ? (
           <Route path="/" component={Landing} />
         ) : !user ? (
-          // User is authenticated but not in database yet - redirect to role selection
-          <Route path="/" component={ChooseRole} />
+          // User is authenticated but not in database yet - redirect to unified signup
+          <Route path="/" component={CompleteSignup} />
         ) : user && !user.role ? (
-          // User exists but hasn't chosen role
-          <Route path="/choose-role" component={ChooseRole} />
+          // User exists but hasn't chosen role - redirect to unified signup
+          <Route path="/complete-signup" component={CompleteSignup} />
         ) : (
           <>
-            {/* Role selection route */}
-            <Route path="/choose-role" component={ChooseRole} />
-            
-            {/* Tutor profile completion route */}
-            <Route path="/tutor/complete-profile" component={CompleteTutorProfile} />
+            {/* Unified signup route */}
+            <Route path="/complete-signup" component={CompleteSignup} />
             
             {/* Main dashboard routes */}
             <Route path="/" component={() => {
