@@ -30,11 +30,10 @@ export const sessions = pgTable(
 // User roles
 export const userRoleEnum = pgEnum('user_role', ['student', 'tutor', 'admin']);
 
-// User storage table.
-// (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
+// User storage table - keeping existing structure but updated for Firebase UID
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
+  id: varchar("id").primaryKey(), // Firebase UID - keeping varchar type
+  email: varchar("email").unique().notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
@@ -45,8 +44,8 @@ export const users = pgTable("users", {
 
 // Subjects table
 export const subjects = pgTable("subjects", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: varchar("name", { length: 100 }).notNull(),
+  id: varchar("id").primaryKey(), // Use string IDs like 'math', 'science'
+  name: varchar("name", { length: 100 }).notNull().unique(),
   description: text("description"),
   category: varchar("category", { length: 50 }),
   createdAt: timestamp("created_at").defaultNow(),
@@ -55,9 +54,10 @@ export const subjects = pgTable("subjects", {
 // Tutor profiles
 export const tutorProfiles = pgTable("tutor_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: varchar("user_id").notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
   bio: text("bio"),
-  hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }),
+  phone: varchar("phone"),
+  hourlyRate: integer("hourly_rate"), // Store as integer cents
   experience: text("experience"),
   education: text("education"),
   certifications: text("certifications").array(),
@@ -72,12 +72,13 @@ export const tutorProfiles = pgTable("tutor_profiles", {
 
 // Tutor subjects junction table
 export const tutorSubjects = pgTable("tutor_subjects", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tutorId: varchar("tutor_id").notNull().references(() => tutorProfiles.id, { onDelete: 'cascade' }),
   subjectId: varchar("subject_id").notNull().references(() => subjects.id, { onDelete: 'cascade' }),
   proficiencyLevel: varchar("proficiency_level", { length: 20 }), // beginner, intermediate, advanced, expert
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  pk: sql`PRIMARY KEY (${table.tutorId}, ${table.subjectId})`
+}));
 
 // Session status enum
 export const sessionStatusEnum = pgEnum('session_status', ['scheduled', 'in_progress', 'completed', 'cancelled']);
@@ -116,6 +117,22 @@ export const messages = pgTable("messages", {
   receiverId: varchar("receiver_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   content: text("content").notNull(),
   isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Notification types and audiences
+export const notificationTypeEnum = pgEnum('notification_type', ['TUTOR_REGISTERED', 'MISC']);
+export const notificationAudienceEnum = pgEnum('notification_audience', ['admin', 'user']);
+
+// Notifications table
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: notificationTypeEnum("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  data: jsonb("data"),
+  isRead: boolean("is_read").default(false),
+  audience: notificationAudienceEnum("audience").default('admin'),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -168,6 +185,10 @@ export const tutorSubjectsRelations = relations(tutorSubjects, ({ one }) => ({
     fields: [tutorSubjects.subjectId],
     references: [subjects.id],
   }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  // No direct relations needed for now
 }));
 
 export const sessionsRelations = relations(sessions_table, ({ one, many }) => ({
@@ -229,11 +250,20 @@ export const fileUploadsRelations = relations(fileUploads, ({ one }) => ({
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
+  id: true,
   email: true,
   firstName: true,
   lastName: true,
   profileImageUrl: true,
   role: true,
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).pick({
+  type: true,
+  title: true,
+  body: true,
+  data: true,
+  audience: true,
 });
 
 export const insertSubjectSchema = createInsertSchema(subjects).pick({
@@ -245,11 +275,28 @@ export const insertSubjectSchema = createInsertSchema(subjects).pick({
 export const insertTutorProfileSchema = createInsertSchema(tutorProfiles).pick({
   userId: true,
   bio: true,
+  phone: true,
   hourlyRate: true,
   experience: true,
   education: true,
   certifications: true,
   availability: true,
+});
+
+// Tutor profile update schema (no userId since it's set on creation)
+export const updateTutorProfileSchema = createInsertSchema(tutorProfiles).pick({
+  bio: true,
+  phone: true,
+  hourlyRate: true,
+  experience: true,
+  education: true,
+  certifications: true,
+  availability: true,
+}).partial();
+
+// Choose role schema
+export const chooseRoleSchema = z.object({
+  role: z.enum(['student', 'tutor']),
 });
 
 export const insertSessionSchema = createInsertSchema(sessions_table).pick({
@@ -295,11 +342,31 @@ export type Session = typeof sessions_table.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type FileUpload = typeof fileUploads.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertSubject = z.infer<typeof insertSubjectSchema>;
 export type InsertTutorProfile = z.infer<typeof insertTutorProfileSchema>;
+export type UpdateTutorProfile = z.infer<typeof updateTutorProfileSchema>;
 export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type InsertReview = z.infer<typeof insertReviewSchema>;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type InsertFileUpload = z.infer<typeof insertFileUploadSchema>;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type ChooseRole = z.infer<typeof chooseRoleSchema>;
+
+// Extended types for API responses
+export type TutorProfileWithSubjects = TutorProfile & {
+  subjects: (TutorSubject & { subject: Subject })[];
+  user: User;
+};
+
+export type UserWithProfile = User & {
+  tutorProfile?: TutorProfile;
+};
+
+export type MeResponse = {
+  user: User;
+  hasTutorProfile: boolean;
+  tutorProfile?: TutorProfile;
+};

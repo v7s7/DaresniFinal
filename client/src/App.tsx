@@ -11,10 +11,13 @@ import TutorDashboard from "@/pages/TutorDashboard";
 import AdminDashboard from "@/pages/AdminDashboard";
 import TutorBrowse from "@/pages/TutorBrowse";
 import TutorProfile from "@/pages/TutorProfile";
+import ChooseRole from "@/pages/ChooseRole";
+import CompleteTutorProfile from "@/pages/CompleteTutorProfile";
 import Navbar from "@/components/Navbar";
 
 function Router() {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { firebaseUser, user, isLoading } = useAuth();
+  const isAuthenticated = !!firebaseUser;
 
   if (isLoading) {
     return (
@@ -30,8 +33,21 @@ function Router() {
       <Switch>
         {!isAuthenticated ? (
           <Route path="/" component={Landing} />
+        ) : !user ? (
+          // User is authenticated but not in database yet - redirect to role selection
+          <Route path="/" component={ChooseRole} />
+        ) : user && !user.role ? (
+          // User exists but hasn't chosen role
+          <Route path="/choose-role" component={ChooseRole} />
         ) : (
           <>
+            {/* Role selection route */}
+            <Route path="/choose-role" component={ChooseRole} />
+            
+            {/* Tutor profile completion route */}
+            <Route path="/tutor/complete-profile" component={CompleteTutorProfile} />
+            
+            {/* Main dashboard routes */}
             <Route path="/" component={() => {
               if (user?.role === 'admin') return <AdminDashboard />;
               if (user?.role === 'tutor') return <TutorDashboard />;

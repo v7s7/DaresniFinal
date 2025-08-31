@@ -1,487 +1,376 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Session, TutorProfile, User, Subject } from "@shared/schema";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useAuth } from "@/hooks/useAuth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
+import { 
+  Bell, 
+  CheckCircle, 
+  Clock, 
+  Users, 
+  GraduationCap, 
+  BookOpen,
+  AlertCircle,
+  RefreshCw,
+  User
+} from "lucide-react";
+
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  data?: any;
+  isRead: boolean;
+  createdAt: string;
+}
+
+interface TutorProfile {
+  id: string;
+  userId: string;
+  bio: string;
+  phone: string;
+  hourlyRate: number;
+  experience: string;
+  education: string;
+  isVerified: boolean;
+  isActive: boolean;
+  createdAt: string;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  };
+}
 
 export default function AdminDashboard() {
-  const { user, isLoading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [showUserModal, setShowUserModal] = useState(false);
+  const [currentTab, setCurrentTab] = useState<"notifications" | "tutors">("notifications");
 
-  useEffect(() => {
-    if (!isLoading && (!user || user.role !== 'admin')) {
-      toast({
-        title: "Unauthorized",
-        description: "You don't have admin access. Redirecting...",
-        variant: "destructive",
+  // Fetch notifications
+  const { data: notifications = [], isLoading: notificationsLoading, refetch: refetchNotifications } = useQuery<Notification[]>({
+    queryKey: ["/api/admin/notifications"],
+    refetchInterval: 30000, // Poll every 30 seconds
+  });
+
+  // Fetch pending tutors
+  const { data: pendingTutors = [], isLoading: tutorsLoading } = useQuery<TutorProfile[]>({
+    queryKey: ["/api/admin/pending-tutors"],
+    enabled: currentTab === "tutors",
+  });
+
+  // Mark notification as read
+  const markAsReadMutation = useMutation({
+    mutationFn: async (notificationId: string) => {
+      return apiRequest(`/api/admin/notifications/${notificationId}/read`, {
+        method: "POST",
       });
-      setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
-      return;
-    }
-  }, [user, isLoading, toast]);
-
-  const { data: tutors, isLoading: tutorsLoading } = useQuery<Array<TutorProfile & { user: User, subjects: Subject[] }>>({
-    queryKey: ["/api", "tutors"],
-    enabled: !!user && user.role === 'admin',
-    retry: false,
-  });
-
-  const { data: sessions } = useQuery<Array<Session & { student: User, tutor: TutorProfile & { user: User }, subject: Subject }>>({
-    queryKey: ["/api", "sessions"],
-    enabled: !!user && user.role === 'admin',
-  });
-
-  const { data: subjects } = useQuery<Subject[]>({
-    queryKey: ["/api", "subjects"],
-    enabled: !!user && user.role === 'admin',
-  });
-
-  const verifyTutorMutation = useMutation({
-    mutationFn: async (tutorId: string) => {
-      return await apiRequest("POST", `/api/tutors/${tutorId}/verify`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tutors"] });
-      toast({
-        title: "Success",
-        description: "Tutor verified successfully",
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/notifications"] });
+    },
+  });
+
+  // Verify tutor
+  const verifyTutorMutation = useMutation({
+    mutationFn: async (tutorId: string) => {
+      return apiRequest(`/api/tutors/${tutorId}/verify`, {
+        method: "PUT",
       });
     },
-    onError: (error: Error) => {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-tutors"] });
+      toast({
+        title: "Tutor verified",
+        description: "The tutor has been successfully verified and can now accept students.",
+      });
+    },
+    onError: (error) => {
       toast({
         title: "Error",
-        description: error.message,
+        description: "Failed to verify tutor. Please try again.",
         variant: "destructive",
       });
     },
   });
 
-  if (isLoading || !user || user.role !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  const pendingTutors = tutors?.filter((tutor: any) => !tutor.isVerified) || [];
-  const verifiedTutors = tutors?.filter((tutor: any) => tutor.isVerified) || [];
-  const totalSessions = sessions?.length || 0;
-  const completedSessions = sessions?.filter((s: any) => s.status === 'completed').length || 0;
-
-  const handleVerifyTutor = (tutorId: string) => {
-    verifyTutorMutation.mutate(tutorId);
-  };
-
-  const filteredTutors = tutors?.filter((tutor: any) =>
-    tutor.user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    tutor.user.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    tutor.user.email?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
-    <div className="min-h-screen bg-background pt-16">
-      <div className="container mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground" data-testid="text-admin-dashboard-title">
-            Admin Dashboard
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Manage tutors, students, and platform operations
-          </p>
-        </div>
-
-        {/* Quick Stats */}
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-primary" data-testid="text-total-tutors">
-                {tutors?.length || 0}
-              </div>
-              <div className="text-sm text-muted-foreground">Total Tutors</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-primary" data-testid="text-pending-tutors">
-                {pendingTutors.length}
-              </div>
-              <div className="text-sm text-muted-foreground">Pending Verification</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-primary" data-testid="text-total-sessions">
-                {totalSessions}
-              </div>
-              <div className="text-sm text-muted-foreground">Total Sessions</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6 text-center">
-              <div className="text-3xl font-bold text-primary" data-testid="text-completed-sessions">
-                {completedSessions}
-              </div>
-              <div className="text-sm text-muted-foreground">Completed Sessions</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Main Content */}
-        <Tabs defaultValue="tutors" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="tutors" data-testid="tab-tutors">Tutors</TabsTrigger>
-            <TabsTrigger value="pending" data-testid="tab-pending">Pending ({pendingTutors.length})</TabsTrigger>
-            <TabsTrigger value="sessions" data-testid="tab-sessions">Sessions</TabsTrigger>
-            <TabsTrigger value="subjects" data-testid="tab-subjects">Subjects</TabsTrigger>
-          </TabsList>
-
-          {/* Tutors Tab */}
-          <TabsContent value="tutors">
-            <Card>
-              <CardHeader>
-                <CardTitle>All Tutors</CardTitle>
-                <div className="flex items-center space-x-4">
-                  <Input
-                    placeholder="Search tutors..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="max-w-sm"
-                    data-testid="input-search-tutors"
-                  />
-                </div>
-              </CardHeader>
-              <CardContent>
-                {tutorsLoading ? (
-                  <div className="space-y-4">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className="animate-pulse">
-                        <div className="h-16 bg-muted rounded"></div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Tutor</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Rate</TableHead>
-                        <TableHead>Rating</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredTutors.map((tutor: any) => (
-                        <TableRow key={tutor.id} data-testid={`row-tutor-${tutor.id}`}>
-                          <TableCell>
-                            <div className="flex items-center space-x-3">
-                              <img
-                                src={tutor.user.profileImageUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=50&h=50'}
-                                alt={tutor.user.firstName}
-                                className="w-10 h-10 rounded-full object-cover"
-                              />
-                              <div>
-                                <div className="font-medium">{tutor.user.firstName} {tutor.user.lastName}</div>
-                                <div className="text-sm text-muted-foreground">
-                                  {tutor.subjects.map((s: any) => s.name).join(', ')}
-                                </div>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>{tutor.user.email}</TableCell>
-                          <TableCell>${tutor.hourlyRate}/hr</TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-1">
-                              <span>{parseFloat(tutor.totalRating || '0').toFixed(1)}</span>
-                              <i className="fas fa-star text-yellow-400 text-sm"></i>
-                              <span className="text-sm text-muted-foreground">({tutor.totalReviews})</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={tutor.isVerified ? "default" : "secondary"}>
-                              {tutor.isVerified ? "Verified" : "Pending"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedUser(tutor);
-                                  setShowUserModal(true);
-                                }}
-                                data-testid={`button-view-tutor-${tutor.id}`}
-                              >
-                                View
-                              </Button>
-                              {!tutor.isVerified && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleVerifyTutor(tutor.id)}
-                                  disabled={verifyTutorMutation.isPending}
-                                  data-testid={`button-verify-tutor-${tutor.id}`}
-                                >
-                                  Verify
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Pending Tutors Tab */}
-          <TabsContent value="pending">
-            <Card>
-              <CardHeader>
-                <CardTitle>Pending Tutor Verifications</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {pendingTutors.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <i className="fas fa-check-circle text-4xl mb-4"></i>
-                    <p>No pending verifications</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {pendingTutors.map((tutor: any) => (
-                      <Card key={tutor.id} className="p-4" data-testid={`card-pending-tutor-${tutor.id}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <img
-                              src={tutor.user.profileImageUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=60&h=60'}
-                              alt={tutor.user.firstName}
-                              className="w-15 h-15 rounded-full object-cover"
-                            />
-                            <div>
-                              <h3 className="font-semibold">{tutor.user.firstName} {tutor.user.lastName}</h3>
-                              <p className="text-sm text-muted-foreground">{tutor.user.email}</p>
-                              <p className="text-sm">{tutor.bio?.substring(0, 100)}...</p>
-                              <div className="flex items-center space-x-2 mt-2">
-                                <Badge variant="outline">${tutor.hourlyRate}/hr</Badge>
-                                <Badge variant="outline">{tutor.subjects.length} subjects</Badge>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedUser(tutor);
-                                setShowUserModal(true);
-                              }}
-                              data-testid={`button-review-tutor-${tutor.id}`}
-                            >
-                              Review
-                            </Button>
-                            <Button
-                              onClick={() => handleVerifyTutor(tutor.id)}
-                              disabled={verifyTutorMutation.isPending}
-                              data-testid={`button-approve-tutor-${tutor.id}`}
-                            >
-                              Approve
-                            </Button>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Sessions Tab */}
-          <TabsContent value="sessions">
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Sessions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {sessions && sessions.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Tutor</TableHead>
-                        <TableHead>Subject</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Price</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {sessions.slice(0, 10).map((session: any) => (
-                        <TableRow key={session.id}>
-                          <TableCell>
-                            {session.student.firstName} {session.student.lastName}
-                          </TableCell>
-                          <TableCell>
-                            {session.tutor.user.firstName} {session.tutor.user.lastName}
-                          </TableCell>
-                          <TableCell>{session.subject.name}</TableCell>
-                          <TableCell>
-                            {new Date(session.scheduledAt).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={
-                              session.status === 'completed' ? 'default' :
-                              session.status === 'scheduled' ? 'secondary' :
-                              session.status === 'cancelled' ? 'destructive' : 'outline'
-                            }>
-                              {session.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>${session.price}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <i className="fas fa-calendar-times text-4xl mb-4"></i>
-                    <p>No sessions found</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Subjects Tab */}
-          <TabsContent value="subjects">
-            <Card>
-              <CardHeader>
-                <CardTitle>Available Subjects</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {subjects && subjects.length > 0 ? (
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {subjects.map((subject: any) => (
-                      <Card key={subject.id} className="p-4">
-                        <h3 className="font-semibold">{subject.name}</h3>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {subject.description}
-                        </p>
-                        {subject.category && (
-                          <Badge variant="outline" className="mt-2">
-                            {subject.category}
-                          </Badge>
-                        )}
-                      </Card>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <i className="fas fa-book text-4xl mb-4"></i>
-                    <p>No subjects found</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+    <div className="container mx-auto px-4 py-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-[#9B1B30]">Admin Dashboard</h1>
+        <p className="text-muted-foreground mt-2">
+          Manage platform users, verify tutors, and monitor system activity.
+        </p>
       </div>
 
-      {/* User Detail Modal */}
-      <Dialog open={showUserModal} onOpenChange={setShowUserModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Tutor Details</DialogTitle>
-          </DialogHeader>
-          {selectedUser && (
-            <div className="space-y-6">
-              <div className="flex items-center space-x-4">
-                <img
-                  src={selectedUser.user.profileImageUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100'}
-                  alt={selectedUser.user.firstName}
-                  className="w-20 h-20 rounded-full object-cover"
-                />
-                <div>
-                  <h3 className="text-xl font-semibold">
-                    {selectedUser.user.firstName} {selectedUser.user.lastName}
-                  </h3>
-                  <p className="text-muted-foreground">{selectedUser.user.email}</p>
-                  <div className="flex items-center space-x-2 mt-2">
-                    <Badge variant={selectedUser.isVerified ? "default" : "secondary"}>
-                      {selectedUser.isVerified ? "Verified" : "Pending"}
-                    </Badge>
-                    <Badge variant="outline">${selectedUser.hourlyRate}/hr</Badge>
-                  </div>
-                </div>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Users</p>
+                <p className="text-2xl font-bold">-</p>
               </div>
-
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="font-semibold mb-2">Bio</h4>
-                  <p className="text-sm text-muted-foreground">{selectedUser.bio}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-2">Experience</h4>
-                  <p className="text-sm text-muted-foreground">{selectedUser.experience}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-2">Education</h4>
-                  <p className="text-sm text-muted-foreground">{selectedUser.education}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-2">Subjects</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedUser.subjects.map((subject: any) => (
-                      <Badge key={subject.id} variant="outline">
-                        {subject.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {!selectedUser.isVerified && (
-                <div className="flex justify-end space-x-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowUserModal(false)}
-                  >
-                    Close
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      handleVerifyTutor(selectedUser.id);
-                      setShowUserModal(false);
-                    }}
-                    disabled={verifyTutorMutation.isPending}
-                  >
-                    Approve Tutor
-                  </Button>
-                </div>
-              )}
+              <Users className="h-8 w-8 text-[#9B1B30]" />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Active Tutors</p>
+                <p className="text-2xl font-bold">-</p>
+              </div>
+              <GraduationCap className="h-8 w-8 text-[#9B1B30]" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Pending Verification</p>
+                <p className="text-2xl font-bold">{pendingTutors.length}</p>
+              </div>
+              <Clock className="h-8 w-8 text-orange-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Unread Notifications</p>
+                <p className="text-2xl font-bold">{unreadCount}</p>
+              </div>
+              <Bell className="h-8 w-8 text-red-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="flex space-x-1 mb-6">
+        <Button
+          variant={currentTab === "notifications" ? "default" : "outline"}
+          onClick={() => setCurrentTab("notifications")}
+          className="flex items-center space-x-2"
+          data-testid="tab-notifications"
+        >
+          <Bell className="h-4 w-4" />
+          <span>Notifications</span>
+          {unreadCount > 0 && (
+            <Badge variant="destructive" className="ml-1">
+              {unreadCount}
+            </Badge>
           )}
-        </DialogContent>
-      </Dialog>
+        </Button>
+        <Button
+          variant={currentTab === "tutors" ? "default" : "outline"}
+          onClick={() => setCurrentTab("tutors")}
+          className="flex items-center space-x-2"
+          data-testid="tab-tutors"
+        >
+          <GraduationCap className="h-4 w-4" />
+          <span>Tutor Verification</span>
+          {pendingTutors.length > 0 && (
+            <Badge variant="secondary" className="ml-1">
+              {pendingTutors.length}
+            </Badge>
+          )}
+        </Button>
+      </div>
+
+      {/* Notifications Tab */}
+      {currentTab === "notifications" && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center space-x-2">
+                <Bell className="h-5 w-5" />
+                <span>Recent Notifications</span>
+              </CardTitle>
+              <CardDescription>
+                System notifications and alerts requiring your attention.
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchNotifications()}
+              disabled={notificationsLoading}
+              data-testid="button-refresh-notifications"
+            >
+              <RefreshCw className={`h-4 w-4 ${notificationsLoading ? 'animate-spin' : ''}`} />
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {notificationsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B1B30]"></div>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Bell className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                <p>No notifications yet</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {notifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={`p-4 rounded-lg border ${
+                      notification.isRead 
+                        ? 'bg-background border-border' 
+                        : 'bg-blue-50 border-blue-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <AlertCircle className="h-4 w-4 text-[#9B1B30]" />
+                          <h4 className="font-medium">{notification.title}</h4>
+                          {!notification.isRead && (
+                            <Badge variant="destructive" className="text-xs">
+                              New
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-2">
+                          {notification.body}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(notification.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      {!notification.isRead && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => markAsReadMutation.mutate(notification.id)}
+                          disabled={markAsReadMutation.isPending}
+                          data-testid={`button-mark-read-${notification.id}`}
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tutor Verification Tab */}
+      {currentTab === "tutors" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <GraduationCap className="h-5 w-5" />
+              <span>Pending Tutor Verification</span>
+            </CardTitle>
+            <CardDescription>
+              Review and verify new tutor applications.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {tutorsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B1B30]"></div>
+              </div>
+            ) : pendingTutors.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-500" />
+                <p>No pending verifications</p>
+                <p className="text-sm">All tutors are up to date!</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {pendingTutors.map((tutor) => (
+                  <div key={tutor.id} className="p-6 border rounded-lg">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 rounded-full bg-[#9B1B30] text-white flex items-center justify-center">
+                          <User className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold">
+                            {tutor.user.firstName} {tutor.user.lastName}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">{tutor.user.email}</p>
+                        </div>
+                      </div>
+                      <Badge variant="outline">Pending Verification</Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <p className="text-sm font-medium">Education</p>
+                        <p className="text-sm text-muted-foreground">{tutor.education}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Experience</p>
+                        <p className="text-sm text-muted-foreground">{tutor.experience}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Hourly Rate</p>
+                        <p className="text-sm text-muted-foreground">${tutor.hourlyRate}/hour</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Phone</p>
+                        <p className="text-sm text-muted-foreground">{tutor.phone}</p>
+                      </div>
+                    </div>
+
+                    <div className="mb-4">
+                      <p className="text-sm font-medium mb-2">Bio</p>
+                      <p className="text-sm text-muted-foreground bg-slate-50 p-3 rounded">
+                        {tutor.bio}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Applied: {new Date(tutor.createdAt).toLocaleDateString()}
+                      </p>
+                      <Button
+                        onClick={() => verifyTutorMutation.mutate(tutor.id)}
+                        disabled={verifyTutorMutation.isPending}
+                        data-testid={`button-verify-${tutor.id}`}
+                      >
+                        {verifyTutorMutation.isPending ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Verifying...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Verify Tutor
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

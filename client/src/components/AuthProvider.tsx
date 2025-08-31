@@ -1,104 +1,170 @@
-import { useState, useEffect, createContext, useContext } from "react";
-import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { 
   User as FirebaseUser, 
-  signInWithPopup, 
+  onAuthStateChanged, 
+  signOut as firebaseSignOut,
+  signInWithPopup,
+  GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
   updateProfile
 } from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase";
-import { getUser, createUser } from "@/lib/firestore";
-import type { User, CreateUser } from "@shared/types";
+import { useQueryClient } from "@tanstack/react-query";
 
-interface AuthContextType {
-  user: User | null;
-  firebaseUser: FirebaseUser | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  signInWithGoogle: () => Promise<void>;
-  signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, firstName: string, lastName: string, role?: string, additionalData?: any) => Promise<void>;
-  signOut: () => Promise<void>;
+// Types
+interface User {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  role: 'student' | 'tutor' | 'admin';
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+interface MeResponse {
+  user: User;
+  hasTutorProfile: boolean;
+  tutorProfile?: any;
+}
 
-export const useAuth = () => {
+interface AuthContextType {
+  firebaseUser: FirebaseUser | null;
+  user: User | null;
+  isLoading: boolean;
+  signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  getAuthToken: () => Promise<string | null>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-};
+}
 
 interface AuthProviderProps {
   children: ReactNode;
 }
 
-export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const [user, setUser] = useState<User | null>(null);
+export function AuthProvider({ children }: AuthProviderProps) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // Get Firebase auth token
+  const getAuthToken = async (): Promise<string | null> => {
+    if (!firebaseUser) return null;
+    try {
+      return await firebaseUser.getIdToken();
+    } catch (error) {
+      console.error('Error getting auth token:', error);
+      return null;
+    }
+  };
+
+  // Fetch user data from our API
+  const fetchUserData = async (firebaseUser: FirebaseUser): Promise<void> => {
+    try {
+      const token = await firebaseUser.getIdToken();
+      const response = await fetch('/api/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data: MeResponse = await response.json();
+        setUser(data.user);
+      } else {
+        console.error('Failed to fetch user data:', response.statusText);
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+      setUser(null);
+    }
+  };
+
+  // Monitor Firebase auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setFirebaseUser(firebaseUser);
+      
+      if (firebaseUser) {
+        await fetchUserData(firebaseUser);
+      } else {
+        setUser(null);
+        // Clear all cached data when user signs out
+        queryClient.clear();
+      }
+      
+      setIsLoading(false);
+    });
+
+    return unsubscribe;
+  }, [queryClient]);
+
+  // Configure API request interceptor for auth token
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    
+    window.fetch = async (url, options = {}) => {
+      // Only add auth header for API calls
+      if (typeof url === 'string' && url.startsWith('/api/') && firebaseUser) {
+        try {
+          const token = await firebaseUser.getIdToken();
+          options.headers = {
+            ...options.headers,
+            'Authorization': `Bearer ${token}`,
+          };
+        } catch (error) {
+          console.error('Error getting auth token for API call:', error);
+        }
+      }
+      
+      return originalFetch(url, options);
+    };
+
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [firebaseUser]);
 
   const signInWithGoogle = async () => {
     try {
+      setIsLoading(true);
       const result = await signInWithPopup(auth, googleProvider);
-      const firebaseUser = result.user;
-      
-      // Check if user exists in Firestore
-      let userData = await getUser(firebaseUser.uid);
-      
-      if (!userData) {
-        // Create new user in Firestore
-        userData = await createUser({
-          id: firebaseUser.uid,
-          email: firebaseUser.email || "",
-          firstName: firebaseUser.displayName?.split(" ")[0] || null,
-          lastName: firebaseUser.displayName?.split(" ").slice(1).join(" ") || null,
-          profileImageUrl: firebaseUser.photoURL || null,
-          role: "student", // Default role
-        });
-      }
-      
-      setUser(userData);
-      setFirebaseUser(firebaseUser);
+      // User data will be fetched automatically by the auth state listener
     } catch (error) {
       console.error("Error signing in with Google:", error);
+      setIsLoading(false);
       throw error;
     }
   };
 
   const signInWithEmail = async (email: string, password: string) => {
     try {
+      setIsLoading(true);
       const result = await signInWithEmailAndPassword(auth, email, password);
-      const firebaseUser = result.user;
-      
-      let userData = await getUser(firebaseUser.uid);
-      
-      if (!userData) {
-        userData = await createUser({
-          id: firebaseUser.uid,
-          email: firebaseUser.email || "",
-          firstName: firebaseUser.displayName?.split(" ")[0] || null,
-          lastName: firebaseUser.displayName?.split(" ").slice(1).join(" ") || null,
-          profileImageUrl: firebaseUser.photoURL || null,
-          role: "student",
-        });
-      }
-      
-      setUser(userData);
-      setFirebaseUser(firebaseUser);
+      // User data will be fetched automatically by the auth state listener
     } catch (error) {
       console.error("Error signing in with email:", error);
+      setIsLoading(false);
       throw error;
     }
   };
 
-  const signUpWithEmail = async (email: string, password: string, firstName: string, lastName: string, role = "student", additionalData: any = {}) => {
+  const signUpWithEmail = async (email: string, password: string, firstName: string, lastName: string) => {
     try {
+      setIsLoading(true);
       const result = await createUserWithEmailAndPassword(auth, email, password);
       const firebaseUser = result.user;
       
@@ -107,36 +173,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         displayName: `${firstName} ${lastName}`.trim(),
       });
       
-      // Create user data object
-      const createUserData: CreateUser = {
-        id: firebaseUser.uid,
-        email: firebaseUser.email || "",
-        firstName,
-        lastName,
-        profileImageUrl: firebaseUser.photoURL || null,
-        role: role as 'student' | 'tutor' | 'admin',
-      };
-      
-      // Add tutor-specific fields if role is tutor
-      if (role === "tutor" && additionalData) {
-        createUserData.phone = additionalData.phone || "";
-        createUserData.education = additionalData.education || "";
-        createUserData.experience = additionalData.experience || "";
-        createUserData.bio = additionalData.bio || "";
-        createUserData.hourlyRate = additionalData.hourlyRate || "";
-        createUserData.linkedinProfile = additionalData.linkedinProfile || "";
-        createUserData.certifications = additionalData.certifications || "";
-        createUserData.isVerified = false; // Tutors need manual verification
-        createUserData.verificationStatus = "pending" as const;
-      }
-      
-      // Create user in Firestore
-      const userData = await createUser(createUserData);
-      
-      setUser(userData);
-      setFirebaseUser(firebaseUser);
+      // User data will be fetched automatically by the auth state listener
     } catch (error) {
       console.error("Error signing up with email:", error);
+      setIsLoading(false);
       throw error;
     }
   };
@@ -146,59 +186,22 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       await firebaseSignOut(auth);
       setUser(null);
       setFirebaseUser(null);
+      queryClient.clear();
     } catch (error) {
       console.error("Error signing out:", error);
       throw error;
     }
   };
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setIsLoading(true);
-      
-      if (firebaseUser) {
-        try {
-          let userData = await getUser(firebaseUser.uid);
-          
-          if (!userData) {
-            // Create new user if doesn't exist
-            userData = await createUser({
-              id: firebaseUser.uid,
-              email: firebaseUser.email || "",
-              firstName: firebaseUser.displayName?.split(" ")[0] || null,
-              lastName: firebaseUser.displayName?.split(" ").slice(1).join(" ") || null,
-              profileImageUrl: firebaseUser.photoURL || null,
-              role: "student",
-            });
-          }
-          
-          setUser(userData);
-          setFirebaseUser(firebaseUser);
-        } catch (error) {
-          console.error("Error fetching user data:", error);
-          setUser(null);
-          setFirebaseUser(null);
-        }
-      } else {
-        setUser(null);
-        setFirebaseUser(null);
-      }
-      
-      setIsLoading(false);
-    });
-
-    return unsubscribe;
-  }, []);
-
   const value: AuthContextType = {
-    user,
     firebaseUser,
+    user,
     isLoading,
-    isAuthenticated: !!user,
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
     signOut,
+    getAuthToken,
   };
 
   return (
@@ -206,4 +209,4 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       {children}
     </AuthContext.Provider>
   );
-};
+}

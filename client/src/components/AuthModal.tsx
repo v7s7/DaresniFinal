@@ -4,13 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Mail, Lock, User, X, Phone, GraduationCap, Briefcase, DollarSign, Globe } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, User, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -30,23 +27,13 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     password: "",
   });
   
-  // Sign Up Form State
+  // Sign Up Form State - simplified to basic account creation only
   const [signUpData, setSignUpData] = useState({
     firstName: "",
     lastName: "",
     email: "",
     password: "",
     confirmPassword: "",
-    role: "student",
-    // Tutor specific fields
-    phone: "",
-    education: "",
-    experience: "",
-    subjects: [],
-    bio: "",
-    hourlyRate: "",
-    linkedinProfile: "",
-    certifications: "",
   });
 
   const handleGoogleSignIn = async () => {
@@ -79,10 +66,11 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    
     if (!signInData.email || !signInData.password) {
       toast({
         title: "Missing information",
-        description: "Please fill in all fields.",
+        description: "Please enter both email and password.",
         variant: "destructive",
       });
       return;
@@ -130,27 +118,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       return;
     }
 
-    // Tutor-specific validation
-    if (signUpData.role === "tutor") {
-      if (!signUpData.phone || !signUpData.education || !signUpData.experience || !signUpData.bio || !signUpData.hourlyRate) {
-        toast({
-          title: "Missing tutor information",
-          description: "Please fill in all tutor fields for verification.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      if (signUpData.bio.length < 50) {
-        toast({
-          title: "Bio too short",
-          description: "Please provide a detailed bio (at least 50 characters) for verification.",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
     if (signUpData.password !== signUpData.confirmPassword) {
       toast({
         title: "Password mismatch",
@@ -171,12 +138,10 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
     setIsLoading(true);
     try {
-      await signUpWithEmail(signUpData.email, signUpData.password, signUpData.firstName, signUpData.lastName, signUpData.role, signUpData);
+      await signUpWithEmail(signUpData.email, signUpData.password, signUpData.firstName, signUpData.lastName);
       toast({
-        title: signUpData.role === "tutor" ? "Tutor application submitted!" : "Welcome to TutorConnect!",
-        description: signUpData.role === "tutor" 
-          ? "Your tutor application has been submitted for review. You can sign in once approved."
-          : "Your account has been created successfully.",
+        title: "Welcome to Daresni!",
+        description: "Your account has been created successfully.",
       });
       onClose();
     } catch (error: any) {
@@ -200,11 +165,13 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setIsLoading(false);
   };
 
+  if (!isOpen) return null;
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto" data-testid="modal-auth">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Welcome to TutorConnect</DialogTitle>
+          <DialogTitle className="text-center">Welcome to Daresni</DialogTitle>
         </DialogHeader>
         
         <Tabs defaultValue="signin" className="w-full">
@@ -321,26 +288,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
             </div>
             
             <form onSubmit={handleEmailSignUp} className="space-y-4">
-              {/* Role Selection */}
-              <div className="space-y-3">
-                <Label>I want to join as:</Label>
-                <RadioGroup
-                  value={signUpData.role}
-                  onValueChange={(value) => setSignUpData(prev => ({ ...prev, role: value }))}
-                  className="flex space-x-6"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="student" id="role-student" data-testid="radio-student" />
-                    <Label htmlFor="role-student" className="cursor-pointer">Student - Find a tutor</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="tutor" id="role-tutor" data-testid="radio-tutor" />
-                    <Label htmlFor="role-tutor" className="cursor-pointer">Tutor - Teach students</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-              
-              {/* Basic Information */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="signup-firstname">First Name *</Label>
@@ -357,7 +304,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     />
                   </div>
                 </div>
-                
                 <div className="space-y-2">
                   <Label htmlFor="signup-lastname">Last Name *</Label>
                   <div className="relative">
@@ -390,118 +336,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   />
                 </div>
               </div>
-              
-              {/* Tutor-specific fields */}
-              {signUpData.role === "tutor" && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-phone">Phone Number *</Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="signup-phone"
-                        type="tel"
-                        placeholder="Enter your phone number"
-                        value={signUpData.phone}
-                        onChange={(e) => setSignUpData(prev => ({ ...prev, phone: e.target.value }))}
-                        className="pl-10"
-                        data-testid="input-signup-phone"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-education">Education Background *</Label>
-                    <div className="relative">
-                      <GraduationCap className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="signup-education"
-                        type="text"
-                        placeholder="e.g., Master's in Mathematics, University of XYZ"
-                        value={signUpData.education}
-                        onChange={(e) => setSignUpData(prev => ({ ...prev, education: e.target.value }))}
-                        className="pl-10"
-                        data-testid="input-signup-education"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-experience">Teaching Experience *</Label>
-                    <div className="relative">
-                      <Briefcase className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="signup-experience"
-                        type="text"
-                        placeholder="e.g., 5 years teaching high school mathematics"
-                        value={signUpData.experience}
-                        onChange={(e) => setSignUpData(prev => ({ ...prev, experience: e.target.value }))}
-                        className="pl-10"
-                        data-testid="input-signup-experience"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="signup-rate">Hourly Rate ($) *</Label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="signup-rate"
-                          type="number"
-                          placeholder="25"
-                          value={signUpData.hourlyRate}
-                          onChange={(e) => setSignUpData(prev => ({ ...prev, hourlyRate: e.target.value }))}
-                          className="pl-10"
-                          data-testid="input-signup-rate"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="signup-linkedin">LinkedIn Profile (Optional)</Label>
-                      <div className="relative">
-                        <Globe className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="signup-linkedin"
-                          type="url"
-                          placeholder="linkedin.com/in/yourprofile"
-                          value={signUpData.linkedinProfile}
-                          onChange={(e) => setSignUpData(prev => ({ ...prev, linkedinProfile: e.target.value }))}
-                          className="pl-10"
-                          data-testid="input-signup-linkedin"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-bio">Professional Bio * (min 50 characters)</Label>
-                    <Textarea
-                      id="signup-bio"
-                      placeholder="Tell us about yourself, your teaching philosophy, and what makes you a great tutor..."
-                      value={signUpData.bio}
-                      onChange={(e) => setSignUpData(prev => ({ ...prev, bio: e.target.value }))}
-                      className="min-h-[100px]"
-                      data-testid="input-signup-bio"
-                    />
-                    <p className="text-xs text-muted-foreground">{signUpData.bio.length}/50 characters minimum</p>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-certifications">Certifications (Optional)</Label>
-                    <Textarea
-                      id="signup-certifications"
-                      placeholder="List any relevant certifications, licenses, or awards..."
-                      value={signUpData.certifications}
-                      onChange={(e) => setSignUpData(prev => ({ ...prev, certifications: e.target.value }))}
-                      className="min-h-[60px]"
-                      data-testid="input-signup-certifications"
-                    />
-                  </div>
-                </>
-              )}
               
               <div className="space-y-2">
                 <Label htmlFor="signup-password">Password *</Label>
@@ -542,19 +376,13 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 </div>
               </div>
               
-              {signUpData.role === "tutor" && (
-                <div className="bg-blue-50 p-3 rounded-md text-sm text-blue-700">
-                  <p><strong>Note:</strong> Tutor applications require manual verification. You'll receive an email once your application is reviewed and approved.</p>
-                </div>
-              )}
-              
               <Button
                 type="submit"
                 disabled={isLoading}
                 className="w-full"
                 data-testid="button-signup-submit"
               >
-                {isLoading ? "Creating account..." : signUpData.role === "tutor" ? "Submit Tutor Application" : "Create Account"}
+                {isLoading ? "Creating account..." : "Create Account"}
               </Button>
             </form>
           </TabsContent>
