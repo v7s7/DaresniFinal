@@ -272,31 +272,33 @@ export default function StudentDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {tutors?.slice(0, 3).map((tutor: any) => (
-                    <div key={tutor.id} className="flex items-center space-x-3">
-                      <img
-                        src={tutor.user.profileImageUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=50&h=50'}
-                        alt={tutor.user.firstName}
-                        className="w-10 h-10 rounded-full object-cover"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
-                          {tutor.user.firstName} {tutor.user.lastName}
+                  {Array.isArray(tutors) && tutors.length > 0 ? (
+                    tutors.slice(0, 3).map((tutor: any) => (
+                      <div key={tutor.id} className="flex items-center space-x-3">
+                        <img
+                          src={tutor.user.profileImageUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=50&h=50'}
+                          alt={tutor.user.firstName}
+                          className="w-10 h-10 rounded-full object-cover"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            {tutor.user.firstName} {tutor.user.lastName}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {tutor.subjects && tutor.subjects[0]?.name}
+                          </div>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          {tutor.subjects[0]?.name}
-                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleStartChat(tutor.userId)}
+                          data-testid={`button-chat-${tutor.id}`}
+                        >
+                          <i className="fas fa-comment"></i>
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleStartChat(tutor.userId)}
-                        data-testid={`button-chat-${tutor.id}`}
-                      >
-                        <i className="fas fa-comment"></i>
-                      </Button>
-                    </div>
-                  )) || (
+                    ))
+                  ) : (
                     <div className="text-center text-muted-foreground py-4">
                       <i className="fas fa-heart text-2xl mb-2"></i>
                       <p className="text-sm">No favorite tutors yet</p>
