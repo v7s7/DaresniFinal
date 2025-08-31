@@ -1,0 +1,150 @@
+// Firestore Security Rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---- Helpers ---- */
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // TEMPORARY: Seeding bypass. Remove after seeding is complete.
+    // Option A (time window):
+    // function isSeeder() {
+    //   return request.time < timestamp.date(2025, 8, 30);
+    // }
+    // Option B (bootstrap email pattern used during init):
+    function isSeeder() {
+      return isAuthenticated() &&
+             // change this to match the account you use for bootstrap seeding if needed
+             // e.g., '^admin1@tutorconnect\\.com$'
+             request.auth.token.email.matches('^admin1@tutorconnect\\.com$');
+    }
+
+    /* ---- users/{uid} ---- */
+    match /users/{uid} {
+
+      // Read own profile or any when admin
+      allow read: if (isAuthenticated() && request.auth.uid == uid) || isAdmin();
+
+      // Create own profile on first sign-in; user cannot escalate role.
+      // Seeding exception allows writing admin role for bootstrap account.
+      allow create: if (
+        (isAuthenticated() && request.auth.uid == uid &&
+         (!('role' in request.resource.data) || request.resource.data.role == 'student'))
+        || isSeeder()
+      );
+
+      // User may update only non-privileged fields on their own doc.
+      // Admin or seeder may update anything.
+      allow update: if (
+        (isAuthenticated() && request.auth.uid == uid &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['firstName','lastName','profileImageUrl','updatedAt']))
+        || isAdmin()
+        || isSeeder()
+      );
+
+      // Delete restricted to admin
+      allow delete: if isAdmin();
+    }
+
+    /* ---- subjects/{subjectId} ---- */
+    match /subjects/{subjectId} {
+      allow read: if isAuthenticated();
+      // Admin only in production; allow seeder during initialization
+      allow write: if isAdmin() || isSeeder();
+    }
+
+    /* ---- sessions/{sessionId} ---- */
+    match /sessions/{sessionId} {
+      allow read: if (
+        (isAuthenticated() &&
+          (resource.data.studentId == request.auth.uid ||
+           resource.data.tutorId == request.auth.uid))
+        || isAdmin()
+      );
+
+      allow create: if (
+        (isAuthenticated() &&
+          request.resource.data.studentId == request.auth.uid)
+        || isAdmin()
+      );
+
+      allow update: if (
+        (isAuthenticated() &&
+          (resource.data.studentId == request.auth.uid ||
+           resource.data.tutorId == request.auth.uid))
+        || isAdmin()
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    /* ---- reviews/{reviewId} ---- */
+    match /reviews/{reviewId} {
+      allow read: if isAuthenticated() || isAdmin();
+
+      allow create: if (
+        (isAuthenticated() && request.resource.data.studentId == request.auth.uid)
+        || isAdmin()
+      );
+
+      allow update: if (
+        (isAuthenticated() && resource.data.studentId == request.auth.uid)
+        || isAdmin()
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    /* ---- messages/{messageId} ---- */
+    match /messages/{messageId} {
+      allow read: if (
+        (isAuthenticated() &&
+          (resource.data.senderId == request.auth.uid ||
+           resource.data.receiverId == request.auth.uid))
+        || isAdmin()
+      );
+
+      allow create: if (
+        (isAuthenticated() && request.resource.data.senderId == request.auth.uid)
+        || isAdmin()
+      );
+
+      allow update, delete: if (
+        (isAuthenticated() && resource.data.senderId == request.auth.uid)
+        || isAdmin()
+      );
+    }
+
+    /* ---- files/{fileId} ---- */
+    match /files/{fileId} {
+      allow read: if (
+        (isAuthenticated() && resource.data.uploadedBy == request.auth.uid)
+        || isAdmin()
+      );
+
+      allow create: if (
+        (isAuthenticated() && request.resource.data.uploadedBy == request.auth.uid)
+        || isAdmin()
+      );
+
+      allow update, delete: if (
+        (isAuthenticated() && resource.data.uploadedBy == request.auth.uid)
+        || isAdmin()
+      );
+    }
+
+    /* ---- Deny everything else ---- */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
