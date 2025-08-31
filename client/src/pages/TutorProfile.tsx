@@ -419,7 +419,7 @@ export default function TutorProfile() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {tutors?.filter((t: any) => t.id !== tutor.id).slice(0, 3).map((similarTutor: any) => (
+                  {Array.isArray(tutors) ? tutors.filter((t: any) => t.id !== tutor.id).slice(0, 3).map((similarTutor: any) => (
                     <div key={similarTutor.id} className="flex items-center space-x-3">
                       <Avatar>
                         <AvatarImage 
@@ -446,7 +446,7 @@ export default function TutorProfile() {
                         View
                       </Button>
                     </div>
-                  ))}
+                  )) : null}
                 </div>
               </CardContent>
             </Card>

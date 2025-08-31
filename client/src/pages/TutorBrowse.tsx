@@ -24,7 +24,7 @@ export default function TutorBrowse() {
     queryKey: ["/api", "subjects"],
   });
 
-  const filteredTutors = tutors?.filter((tutor: any) => {
+  const filteredTutors = Array.isArray(tutors) ? tutors.filter((tutor: any) => {
     const matchesSearch = 
       tutor.user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       tutor.user.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -34,7 +34,7 @@ export default function TutorBrowse() {
       tutor.subjects.some((s: any) => s.id === selectedSubject);
     
     return matchesSearch && matchesSubject;
-  })?.sort((a: any, b: any) => {
+  }).sort((a: any, b: any) => {
     switch (sortBy) {
       case "rating":
         return parseFloat(b.totalRating || '0') - parseFloat(a.totalRating || '0');
@@ -47,7 +47,7 @@ export default function TutorBrowse() {
       default:
         return 0;
     }
-  }) || [];
+  }) : [];
 
   const handleBookSession = (tutor: any) => {
     setSelectedTutor(tutor);
@@ -91,11 +91,11 @@ export default function TutorBrowse() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Subjects</SelectItem>
-                    {subjects?.map((subject: any) => (
+                    {Array.isArray(subjects) ? subjects.map((subject: any) => (
                       <SelectItem key={subject.id} value={subject.id}>
                         {subject.name}
                       </SelectItem>
-                    ))}
+                    )) : null}
                   </SelectContent>
                 </Select>
               </div>

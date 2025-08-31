@@ -76,7 +76,10 @@ export default function TutorDashboard() {
 
   const createProfileMutation = useMutation({
     mutationFn: async (data: z.infer<typeof profileSchema>) => {
-      return await apiRequest("POST", "/api/tutors/profile", data);
+      return await apiRequest("/api/tutors/profile", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tutors/profile"] });
@@ -97,7 +100,10 @@ export default function TutorDashboard() {
 
   const updateSessionMutation = useMutation({
     mutationFn: async ({ sessionId, status }: { sessionId: string; status: string }) => {
-      return await apiRequest("PUT", `/api/sessions/${sessionId}`, { status });
+      return await apiRequest(`/api/sessions/${sessionId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
@@ -123,13 +129,13 @@ export default function TutorDashboard() {
     );
   }
 
-  const upcomingSessions = sessions?.filter((session: any) => 
+  const upcomingSessions = Array.isArray(sessions) ? sessions.filter((session: any) => 
     new Date(session.scheduledAt) > new Date() && session.status === 'scheduled'
-  ) || [];
+  ) : [];
 
-  const completedSessions = sessions?.filter((session: any) => 
+  const completedSessions = Array.isArray(sessions) ? sessions.filter((session: any) => 
     session.status === 'completed'
-  ) || [];
+  ) : [];
 
   const totalEarnings = completedSessions.reduce((sum: number, session: any) => 
     sum + parseFloat(session.price || '0'), 0
@@ -434,7 +440,7 @@ export default function TutorDashboard() {
                 <div className="space-y-4">
                   <div className="text-center">
                     <img
-                      src={user.profileImageUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100'}
+                      src={'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100'}
                       alt={user.firstName || 'User'}
                       className="w-20 h-20 rounded-full object-cover mx-auto mb-3"
                     />
