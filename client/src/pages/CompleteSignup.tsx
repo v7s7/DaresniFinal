@@ -62,10 +62,13 @@ export default function CompleteSignup() {
 
       return { success: true };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/me"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/me"] });
+      // Small delay to ensure auth context updates
+      setTimeout(() => {
+        setLocation("/");
+      }, 100);
       
-      setLocation("/");
       toast({
         title: "Welcome to Daresni!",
         description: selectedRole === "tutor" 
@@ -125,9 +128,16 @@ export default function CompleteSignup() {
         return;
       }
 
+      // Convert data types for validation
+      const processedTutorData = {
+        ...tutorData,
+        hourlyRate: parseFloat(tutorData.hourlyRate) || 0,
+        certifications: tutorData.certifications ? tutorData.certifications.split(',').map(c => c.trim()).filter(c => c) : []
+      };
+      
       completeSignupMutation.mutate({ 
         role: selectedRole, 
-        profileData: tutorData 
+        profileData: processedTutorData 
       });
     } else {
       // Student signup (just role selection)
