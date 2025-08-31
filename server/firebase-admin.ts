@@ -123,7 +123,7 @@ export const requireUser = async (req: Request, res: Response, next: NextFunctio
           email,
           firstName,
           lastName,
-          role: 'student', // Default role
+          role: null, // No default role - user must choose
         })
         .returning();
     }
