@@ -14,8 +14,20 @@ import {
   BookOpen,
   AlertCircle,
   RefreshCw,
-  User
+  User,
+  Trash2,
+  Shield
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Notification {
   id: string;
@@ -46,10 +58,19 @@ interface TutorProfile {
   };
 }
 
+interface AdminUser {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  createdAt: string;
+}
+
 export default function AdminDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [currentTab, setCurrentTab] = useState<"notifications" | "tutors">("notifications");
+  const [currentTab, setCurrentTab] = useState<"notifications" | "tutors" | "admins">("notifications");
+  const [adminToDelete, setAdminToDelete] = useState<string | null>(null);
 
   // Fetch notifications
   const { data: notifications = [], isLoading: notificationsLoading, refetch: refetchNotifications } = useQuery<Notification[]>({
@@ -61,6 +82,12 @@ export default function AdminDashboard() {
   const { data: pendingTutors = [], isLoading: tutorsLoading } = useQuery<TutorProfile[]>({
     queryKey: ["/api/admin/pending-tutors"],
     enabled: currentTab === "tutors",
+  });
+
+  // Fetch admin users
+  const { data: adminUsers = [], isLoading: adminsLoading } = useQuery<AdminUser[]>({
+    queryKey: ["/api/admin/admins"],
+    enabled: currentTab === "admins",
   });
 
   // Mark notification as read
@@ -95,6 +122,31 @@ export default function AdminDashboard() {
         description: "Failed to verify tutor. Please try again.",
         variant: "destructive",
       });
+    },
+  });
+
+  // Delete admin user
+  const deleteAdminMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return apiRequest(`/api/admin/admins/${userId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/admins"] });
+      toast({
+        title: "Admin deleted",
+        description: "The admin user has been successfully deleted.",
+      });
+      setAdminToDelete(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete admin user. Please try again.",
+        variant: "destructive",
+      });
+      setAdminToDelete(null);
     },
   });
 
@@ -189,6 +241,15 @@ export default function AdminDashboard() {
               {pendingTutors.length}
             </Badge>
           )}
+        </Button>
+        <Button
+          variant={currentTab === "admins" ? "default" : "outline"}
+          onClick={() => setCurrentTab("admins")}
+          className="flex items-center space-x-2"
+          data-testid="tab-admins"
+        >
+          <Shield className="h-4 w-4" />
+          <span>Admin Management</span>
         </Button>
       </div>
 
@@ -371,6 +432,90 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Admin Management Tab */}
+      {currentTab === "admins" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Shield className="h-5 w-5" />
+              <span>Admin Users</span>
+            </CardTitle>
+            <CardDescription>
+              View and manage all admin users in the system.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {adminsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B1B30]"></div>
+              </div>
+            ) : adminUsers.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <AlertCircle className="h-12 w-12 mx-auto mb-4 text-orange-500" />
+                <p>No admin users found</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {adminUsers.map((admin) => (
+                  <div key={admin.id} className="p-4 border rounded-lg flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="h-10 w-10 rounded-full bg-[#9B1B30] text-white flex items-center justify-center">
+                        <Shield className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold" data-testid={`admin-name-${admin.id}`}>
+                          {admin.firstName && admin.lastName 
+                            ? `${admin.firstName} ${admin.lastName}` 
+                            : 'Admin User'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground" data-testid={`admin-email-${admin.id}`}>
+                          {admin.email}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Created: {new Date(admin.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setAdminToDelete(admin.id)}
+                      data-testid={`button-delete-admin-${admin.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Delete Admin Confirmation Dialog */}
+      <AlertDialog open={!!adminToDelete} onOpenChange={() => setAdminToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this admin user. This action cannot be undone.
+              You cannot delete your own admin account.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => adminToDelete && deleteAdminMutation.mutate(adminToDelete)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              Delete Admin
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

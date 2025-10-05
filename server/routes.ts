@@ -409,6 +409,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // === ADMIN ROUTES ===
   
+  // Get all admin users
+  app.get('/api/admin/admins', requireUser, requireAdmin, async (req, res) => {
+    try {
+      const adminUsers = await db
+        .select()
+        .from(users)
+        .where(eq(users.role, 'admin'))
+        .orderBy(users.createdAt);
+
+      res.json(adminUsers);
+    } catch (error) {
+      console.error('Error fetching admin users:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch admin users', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Delete admin user
+  app.delete('/api/admin/admins/:userId', requireUser, requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const currentUser = req.user!;
+
+      // Prevent admin from deleting themselves
+      if (userId === currentUser.id) {
+        return res.status(400).json({ 
+          message: 'You cannot delete your own admin account', 
+          fieldErrors: {} 
+        });
+      }
+
+      // Check if user is admin
+      const [userToDelete] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!userToDelete) {
+        return res.status(404).json({ 
+          message: 'User not found', 
+          fieldErrors: {} 
+        });
+      }
+
+      if (userToDelete.role !== 'admin') {
+        return res.status(400).json({ 
+          message: 'User is not an admin', 
+          fieldErrors: {} 
+        });
+      }
+
+      // Delete the user (cascade will handle related data)
+      await db
+        .delete(users)
+        .where(eq(users.id, userId));
+
+      res.json({ message: 'Admin user deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting admin user:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete admin user', 
+        fieldErrors: {} 
+      });
+    }
+  });
+  
   // Get pending tutors for verification
   app.get('/api/admin/pending-tutors', requireUser, requireAdmin, async (req, res) => {
     try {

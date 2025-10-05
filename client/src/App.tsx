@@ -31,9 +31,6 @@ function Router() {
     <div className="min-h-screen bg-background">
       {isAuthenticated && <Navbar />}
       <Switch>
-        {/* Public admin setup route */}
-        <Route path="/admin-setup" component={AdminSetup} />
-        
         {!isAuthenticated ? (
           <Route path="/" component={Landing} />
         ) : !user ? (
