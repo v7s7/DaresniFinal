@@ -86,7 +86,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await db
         .update(users)
         .set({ 
-          role: role as 'student' | 'tutor',
+          role: role as 'student' | 'tutor' | 'admin',
           updatedAt: new Date() 
         })
         .where(eq(users.id, user.id));

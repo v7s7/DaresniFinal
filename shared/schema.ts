@@ -296,7 +296,7 @@ export const updateTutorProfileSchema = createInsertSchema(tutorProfiles).pick({
 
 // Choose role schema
 export const chooseRoleSchema = z.object({
-  role: z.enum(['student', 'tutor']),
+  role: z.enum(['student', 'tutor', 'admin']),
 });
 
 export const insertSessionSchema = createInsertSchema(sessions_table).pick({
