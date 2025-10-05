@@ -21,7 +21,7 @@ export default function CompleteSignup() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [selectedRole, setSelectedRole] = useState<"student" | "tutor" | "">("");
+  const [selectedRole, setSelectedRole] = useState<"student" | "tutor" | "admin" | "">("");
   const [formData, setFormData] = useState({
     // Student fields (minimal)
     studentData: {},
@@ -45,7 +45,7 @@ export default function CompleteSignup() {
 
   // Unified signup mutation
   const completeSignupMutation = useMutation({
-    mutationFn: async (data: { role: "student" | "tutor"; profileData?: any }) => {
+    mutationFn: async (data: { role: "student" | "tutor" | "admin"; profileData?: any }) => {
       // First, set the role
       await apiRequest("/api/auth/choose-role", {
         method: "POST",
@@ -74,6 +74,8 @@ export default function CompleteSignup() {
         title: "Welcome to Daresni!",
         description: selectedRole === "tutor" 
           ? "Your tutor profile has been submitted for review. You'll be notified once verified."
+          : selectedRole === "admin"
+          ? "You now have admin access. You can manage tutors and monitor the platform."
           : "Start browsing tutors and book your first session!",
       });
     },
@@ -141,7 +143,7 @@ export default function CompleteSignup() {
         profileData: processedTutorData 
       });
     } else {
-      // Student signup (just role selection)
+      // Student or Admin signup (just role selection)
       completeSignupMutation.mutate({ role: selectedRole });
     }
   };
@@ -189,7 +191,7 @@ export default function CompleteSignup() {
                 
                 <RadioGroup
                   value={selectedRole}
-                  onValueChange={(value) => setSelectedRole(value as "student" | "tutor")}
+                  onValueChange={(value) => setSelectedRole(value as "student" | "tutor" | "admin")}
                   className="space-y-4"
                 >
                   <div className="flex items-center space-x-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors">
@@ -243,6 +245,35 @@ export default function CompleteSignup() {
                             <span className="flex items-center space-x-1">
                               <CheckCircle className="h-4 w-4" />
                               <span>Build reputation</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center space-x-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors">
+                    <RadioGroupItem value="admin" id="admin" data-testid="radio-admin" />
+                    <Label htmlFor="admin" className="flex-1 cursor-pointer">
+                      <div className="flex items-start space-x-3">
+                        <User className="h-6 w-6 text-purple-600 mt-1" />
+                        <div>
+                          <h4 className="font-semibold text-lg">I'm an Admin</h4>
+                          <p className="text-muted-foreground">
+                            I want to manage the platform, verify tutors, and monitor system activity.
+                          </p>
+                          <div className="mt-2 flex items-center space-x-4 text-sm text-muted-foreground">
+                            <span className="flex items-center space-x-1">
+                              <CheckCircle className="h-4 w-4" />
+                              <span>Verify tutors</span>
+                            </span>
+                            <span className="flex items-center space-x-1">
+                              <CheckCircle className="h-4 w-4" />
+                              <span>Monitor platform</span>
+                            </span>
+                            <span className="flex items-center space-x-1">
+                              <CheckCircle className="h-4 w-4" />
+                              <span>Manage users</span>
                             </span>
                           </div>
                         </div>
@@ -413,6 +444,8 @@ export default function CompleteSignup() {
                     </div>
                   ) : selectedRole === "tutor" ? (
                     "Complete Tutor Profile"
+                  ) : selectedRole === "admin" ? (
+                    "Create Admin Account"
                   ) : selectedRole === "student" ? (
                     "Start Learning"
                   ) : (
