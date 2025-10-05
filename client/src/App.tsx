@@ -12,6 +12,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import TutorBrowse from "@/pages/TutorBrowse";
 import TutorProfile from "@/pages/TutorProfile";
 import CompleteSignup from "@/pages/CompleteSignup";
+import AdminSetup from "@/pages/AdminSetup";
 import Navbar from "@/components/Navbar";
 
 function Router() {
@@ -30,6 +31,9 @@ function Router() {
     <div className="min-h-screen bg-background">
       {isAuthenticated && <Navbar />}
       <Switch>
+        {/* Public admin setup route */}
+        <Route path="/admin-setup" component={AdminSetup} />
+        
         {!isAuthenticated ? (
           <Route path="/" component={Landing} />
         ) : !user ? (
