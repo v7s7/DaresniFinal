@@ -414,8 +414,6 @@ export default function CompleteSignup() {
                     </div>
                   ) : selectedRole === "tutor" ? (
                     "Complete Tutor Profile"
-                  ) : selectedRole === "admin" ? (
-                    "Create Admin Account"
                   ) : selectedRole === "student" ? (
                     "Start Learning"
                   ) : (
