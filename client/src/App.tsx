@@ -43,27 +43,39 @@ function Router() {
           <>
             {/* Unified signup route */}
             <Route path="/complete-signup" component={CompleteSignup} />
-            
+
             {/* Main dashboard routes */}
-            <Route path="/" component={() => {
-              if (user?.role === 'admin') return <AdminDashboard />;
-              if (user?.role === 'tutor') return <TutorDashboard />;
-              return <StudentDashboard />;
-            }} />
+            <Route
+              path="/"
+              component={() => {
+                if (user?.role === "admin") return <AdminDashboard />;
+                if (user?.role === "tutor") return <TutorDashboard />;
+                return <StudentDashboard />;
+              }}
+            />
             <Route path="/tutors" component={TutorBrowse} />
             <Route path="/tutor/:id" component={TutorProfile} />
-            <Route path="/profile" component={() => {
-              if (user?.role === 'tutor') return <TutorDashboard />;
-              return <StudentDashboard />;
-            }} />
-            <Route path="/sessions" component={() => {
-              if (user?.role === 'tutor') return <TutorDashboard />;
-              return <StudentDashboard />;
-            }} />
-            <Route path="/messages" component={() => {
-              if (user?.role === 'tutor') return <TutorDashboard />;
-              return <StudentDashboard />;
-            }} />
+            <Route
+              path="/profile"
+              component={() => {
+                if (user?.role === "tutor") return <TutorDashboard />;
+                return <StudentDashboard />;
+              }}
+            />
+            <Route
+              path="/sessions"
+              component={() => {
+                if (user?.role === "tutor") return <TutorDashboard />;
+                return <StudentDashboard />;
+              }}
+            />
+            <Route
+              path="/messages"
+              component={() => {
+                if (user?.role === "tutor") return <TutorDashboard />;
+                return <StudentDashboard />;
+              }}
+            />
           </>
         )}
         <Route component={NotFound} />
