@@ -16,7 +16,8 @@ import {
   RefreshCw,
   User,
   Trash2,
-  Shield
+  Shield,
+  Eye
 } from "lucide-react";
 import {
   AlertDialog,
@@ -28,6 +29,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Notification {
   id: string;
@@ -40,22 +48,32 @@ interface Notification {
 }
 
 interface TutorProfile {
-  id: string;
-  userId: string;
-  bio: string;
-  phone: string;
-  hourlyRate: number;
-  experience: string;
-  education: string;
-  isVerified: boolean;
-  isActive: boolean;
-  createdAt: string;
+  profile: {
+    id: string;
+    userId: string;
+    bio: string;
+    phone: string;
+    hourlyRate: number;
+    experience: string;
+    education: string;
+    isVerified: boolean;
+    isActive: boolean;
+    createdAt: string;
+  };
   user: {
     id: string;
     email: string;
     firstName: string;
     lastName: string;
-  };
+  } | null;
+}
+
+interface Student {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  createdAt: string;
 }
 
 interface AdminUser {
@@ -69,18 +87,25 @@ interface AdminUser {
 export default function AdminDashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [currentTab, setCurrentTab] = useState<"notifications" | "tutors" | "admins">("notifications");
-  const [adminToDelete, setAdminToDelete] = useState<string | null>(null);
+  const [currentTab, setCurrentTab] = useState<"notifications" | "students" | "tutors" | "admins">("notifications");
+  const [userToDelete, setUserToDelete] = useState<{ id: string; type: string; name: string } | null>(null);
+  const [selectedTutor, setSelectedTutor] = useState<TutorProfile | null>(null);
 
   // Fetch notifications
   const { data: notifications = [], isLoading: notificationsLoading, refetch: refetchNotifications } = useQuery<Notification[]>({
     queryKey: ["/api/admin/notifications"],
-    refetchInterval: 30000, // Poll every 30 seconds
+    refetchInterval: 30000,
   });
 
-  // Fetch pending tutors
-  const { data: pendingTutors = [], isLoading: tutorsLoading } = useQuery<TutorProfile[]>({
-    queryKey: ["/api/admin/pending-tutors"],
+  // Fetch students
+  const { data: students = [], isLoading: studentsLoading } = useQuery<Student[]>({
+    queryKey: ["/api/admin/students"],
+    enabled: currentTab === "students",
+  });
+
+  // Fetch all tutors (verified and pending)
+  const { data: allTutors = [], isLoading: tutorsLoading } = useQuery<TutorProfile[]>({
+    queryKey: ["/api/admin/tutors"],
     enabled: currentTab === "tutors",
   });
 
@@ -110,18 +135,68 @@ export default function AdminDashboard() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-tutors"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tutors"] });
       toast({
         title: "Tutor verified",
         description: "The tutor has been successfully verified and can now accept students.",
       });
     },
-    onError: (error) => {
+    onError: () => {
       toast({
         title: "Error",
         description: "Failed to verify tutor. Please try again.",
         variant: "destructive",
       });
+    },
+  });
+
+  // Delete student
+  const deleteStudentMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return apiRequest(`/api/admin/students/${userId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/students"] });
+      toast({
+        title: "Student deleted",
+        description: "The student account has been successfully deleted.",
+      });
+      setUserToDelete(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete student. Please try again.",
+        variant: "destructive",
+      });
+      setUserToDelete(null);
+    },
+  });
+
+  // Delete tutor
+  const deleteTutorMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return apiRequest(`/api/admin/tutors/${userId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tutors"] });
+      toast({
+        title: "Tutor deleted",
+        description: "The tutor account has been successfully deleted.",
+      });
+      setUserToDelete(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete tutor. Please try again.",
+        variant: "destructive",
+      });
+      setUserToDelete(null);
     },
   });
 
@@ -138,7 +213,7 @@ export default function AdminDashboard() {
         title: "Admin deleted",
         description: "The admin user has been successfully deleted.",
       });
-      setAdminToDelete(null);
+      setUserToDelete(null);
     },
     onError: (error: any) => {
       toast({
@@ -146,11 +221,24 @@ export default function AdminDashboard() {
         description: error.message || "Failed to delete admin user. Please try again.",
         variant: "destructive",
       });
-      setAdminToDelete(null);
+      setUserToDelete(null);
     },
   });
 
+  const handleDeleteUser = () => {
+    if (!userToDelete) return;
+    
+    if (userToDelete.type === 'student') {
+      deleteStudentMutation.mutate(userToDelete.id);
+    } else if (userToDelete.type === 'tutor') {
+      deleteTutorMutation.mutate(userToDelete.id);
+    } else if (userToDelete.type === 'admin') {
+      deleteAdminMutation.mutate(userToDelete.id);
+    }
+  };
+
   const unreadCount = notifications.filter(n => !n.isRead).length;
+  const pendingTutorsCount = allTutors.filter(t => !t.profile.isVerified).length;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -167,10 +255,10 @@ export default function AdminDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Users</p>
-                <p className="text-2xl font-bold">-</p>
+                <p className="text-sm font-medium text-muted-foreground">Students</p>
+                <p className="text-2xl font-bold">{students.length}</p>
               </div>
-              <Users className="h-8 w-8 text-[#9B1B30]" />
+              <BookOpen className="h-8 w-8 text-blue-600" />
             </div>
           </CardContent>
         </Card>
@@ -179,8 +267,8 @@ export default function AdminDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Active Tutors</p>
-                <p className="text-2xl font-bold">-</p>
+                <p className="text-sm font-medium text-muted-foreground">All Tutors</p>
+                <p className="text-2xl font-bold">{allTutors.length}</p>
               </div>
               <GraduationCap className="h-8 w-8 text-[#9B1B30]" />
             </div>
@@ -192,7 +280,7 @@ export default function AdminDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Pending Verification</p>
-                <p className="text-2xl font-bold">{pendingTutors.length}</p>
+                <p className="text-2xl font-bold">{pendingTutorsCount}</p>
               </div>
               <Clock className="h-8 w-8 text-orange-500" />
             </div>
@@ -213,7 +301,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex space-x-1 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         <Button
           variant={currentTab === "notifications" ? "default" : "outline"}
           onClick={() => setCurrentTab("notifications")}
@@ -229,16 +317,28 @@ export default function AdminDashboard() {
           )}
         </Button>
         <Button
+          variant={currentTab === "students" ? "default" : "outline"}
+          onClick={() => setCurrentTab("students")}
+          className="flex items-center space-x-2"
+          data-testid="tab-students"
+        >
+          <BookOpen className="h-4 w-4" />
+          <span>Students</span>
+          <Badge variant="secondary" className="ml-1">
+            {students.length}
+          </Badge>
+        </Button>
+        <Button
           variant={currentTab === "tutors" ? "default" : "outline"}
           onClick={() => setCurrentTab("tutors")}
           className="flex items-center space-x-2"
           data-testid="tab-tutors"
         >
           <GraduationCap className="h-4 w-4" />
-          <span>Tutor Verification</span>
-          {pendingTutors.length > 0 && (
-            <Badge variant="secondary" className="ml-1">
-              {pendingTutors.length}
+          <span>All Tutors</span>
+          {pendingTutorsCount > 0 && (
+            <Badge variant="destructive" className="ml-1">
+              {pendingTutorsCount} pending
             </Badge>
           )}
         </Button>
@@ -296,6 +396,7 @@ export default function AdminDashboard() {
                         ? 'bg-background border-border' 
                         : 'bg-blue-50 border-blue-200'
                     }`}
+                    data-testid={`notification-${notification.id}`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -335,16 +436,76 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      {/* Tutor Verification Tab */}
+      {/* Students Tab */}
+      {currentTab === "students" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <BookOpen className="h-5 w-5" />
+              <span>All Students</span>
+            </CardTitle>
+            <CardDescription>
+              View and manage student accounts on the platform.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {studentsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B1B30]"></div>
+              </div>
+            ) : students.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <BookOpen className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                <p>No students registered yet</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {students.map((student) => (
+                  <div key={student.id} className="p-4 border rounded-lg flex items-center justify-between" data-testid={`student-${student.id}`}>
+                    <div className="flex items-center space-x-3">
+                      <div className="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                        <User className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold" data-testid={`student-name-${student.id}`}>
+                          {student.firstName} {student.lastName}
+                        </h3>
+                        <p className="text-sm text-muted-foreground" data-testid={`student-email-${student.id}`}>{student.email}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Joined {new Date(student.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setUserToDelete({ 
+                        id: student.id, 
+                        type: 'student', 
+                        name: `${student.firstName} ${student.lastName}` 
+                      })}
+                      data-testid={`button-delete-student-${student.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* All Tutors Tab */}
       {currentTab === "tutors" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <GraduationCap className="h-5 w-5" />
-              <span>Pending Tutor Verification</span>
+              <span>All Tutors</span>
             </CardTitle>
             <CardDescription>
-              Review and verify new tutor applications.
+              View all tutors (verified and pending), manage verification status, and delete accounts.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -352,77 +513,93 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#9B1B30]"></div>
               </div>
-            ) : pendingTutors.length === 0 ? (
+            ) : allTutors.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-500" />
-                <p>No pending verifications</p>
-                <p className="text-sm">All tutors are up to date!</p>
+                <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                <p>No tutors registered yet</p>
               </div>
             ) : (
-              <div className="space-y-6">
-                {pendingTutors.map((tutor) => (
-                  <div key={tutor.id} className="p-6 border rounded-lg">
+              <div className="space-y-4">
+                {allTutors.map((tutor) => (
+                  <div key={tutor.profile.id} className="p-4 border rounded-lg" data-testid={`tutor-${tutor.profile.id}`}>
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex items-center space-x-3">
                         <div className="h-10 w-10 rounded-full bg-[#9B1B30] text-white flex items-center justify-center">
                           <User className="h-5 w-5" />
                         </div>
                         <div>
-                          <h3 className="font-semibold">
-                            {tutor.user.firstName} {tutor.user.lastName}
+                          <h3 className="font-semibold" data-testid={`tutor-name-${tutor.profile.id}`}>
+                            {tutor.user?.firstName} {tutor.user?.lastName}
                           </h3>
-                          <p className="text-sm text-muted-foreground">{tutor.user.email}</p>
+                          <p className="text-sm text-muted-foreground" data-testid={`tutor-email-${tutor.profile.id}`}>{tutor.user?.email}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Joined {new Date(tutor.profile.createdAt).toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
-                      <Badge variant="outline">Pending Verification</Badge>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <p className="text-sm font-medium">Education</p>
-                        <p className="text-sm text-muted-foreground">{tutor.education}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Experience</p>
-                        <p className="text-sm text-muted-foreground">{tutor.experience}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Hourly Rate</p>
-                        <p className="text-sm text-muted-foreground">${tutor.hourlyRate}/hour</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Phone</p>
-                        <p className="text-sm text-muted-foreground">{tutor.phone}</p>
-                      </div>
-                    </div>
-
-                    <div className="mb-4">
-                      <p className="text-sm font-medium mb-2">Bio</p>
-                      <p className="text-sm text-muted-foreground bg-slate-50 p-3 rounded">
-                        {tutor.bio}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-muted-foreground">
-                        Applied: {new Date(tutor.createdAt).toLocaleDateString()}
-                      </p>
-                      <Button
-                        onClick={() => verifyTutorMutation.mutate(tutor.id)}
-                        disabled={verifyTutorMutation.isPending}
-                        data-testid={`button-verify-${tutor.id}`}
-                      >
-                        {verifyTutorMutation.isPending ? (
-                          <>
-                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                            Verifying...
-                          </>
+                      <div className="flex items-center gap-2">
+                        {tutor.profile.isVerified ? (
+                          <Badge variant="default" className="bg-green-600">
+                            Verified
+                          </Badge>
                         ) : (
-                          <>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Verify Tutor
-                          </>
+                          <Badge variant="outline" className="text-orange-600 border-orange-600">
+                            Pending
+                          </Badge>
                         )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 text-sm">
+                      <div>
+                        <p className="font-medium">Hourly Rate</p>
+                        <p className="text-muted-foreground">${tutor.profile.hourlyRate}/hour</p>
+                      </div>
+                      <div>
+                        <p className="font-medium">Phone</p>
+                        <p className="text-muted-foreground">{tutor.profile.phone}</p>
+                      </div>
+                      <div>
+                        <p className="font-medium">Status</p>
+                        <p className="text-muted-foreground">
+                          {tutor.profile.isActive ? 'Active' : 'Inactive'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedTutor(tutor)}
+                        data-testid={`button-view-tutor-${tutor.profile.id}`}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Details
+                      </Button>
+                      {!tutor.profile.isVerified && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => verifyTutorMutation.mutate(tutor.profile.id)}
+                          disabled={verifyTutorMutation.isPending}
+                          data-testid={`button-verify-tutor-${tutor.profile.id}`}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Verify
+                        </Button>
+                      )}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setUserToDelete({ 
+                          id: tutor.user?.id || '', 
+                          type: 'tutor', 
+                          name: `${tutor.user?.firstName} ${tutor.user?.lastName}` 
+                        })}
+                        data-testid={`button-delete-tutor-${tutor.profile.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -439,10 +616,10 @@ export default function AdminDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <Shield className="h-5 w-5" />
-              <span>Admin Users</span>
+              <span>Admin Management</span>
             </CardTitle>
             <CardDescription>
-              View and manage all admin users in the system.
+              View all admin accounts and manage admin access.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -452,39 +629,38 @@ export default function AdminDashboard() {
               </div>
             ) : adminUsers.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <AlertCircle className="h-12 w-12 mx-auto mb-4 text-orange-500" />
-                <p>No admin users found</p>
+                <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
+                <p>No admin accounts found</p>
               </div>
             ) : (
               <div className="space-y-4">
                 {adminUsers.map((admin) => (
-                  <div key={admin.id} className="p-4 border rounded-lg flex items-center justify-between">
+                  <div key={admin.id} className="p-4 border rounded-lg flex items-center justify-between" data-testid={`admin-${admin.id}`}>
                     <div className="flex items-center space-x-3">
-                      <div className="h-10 w-10 rounded-full bg-[#9B1B30] text-white flex items-center justify-center">
+                      <div className="h-10 w-10 rounded-full bg-purple-600 text-white flex items-center justify-center">
                         <Shield className="h-5 w-5" />
                       </div>
                       <div>
                         <h3 className="font-semibold" data-testid={`admin-name-${admin.id}`}>
-                          {admin.firstName && admin.lastName 
-                            ? `${admin.firstName} ${admin.lastName}` 
-                            : 'Admin User'}
+                          {admin.firstName} {admin.lastName}
                         </h3>
-                        <p className="text-sm text-muted-foreground" data-testid={`admin-email-${admin.id}`}>
-                          {admin.email}
-                        </p>
+                        <p className="text-sm text-muted-foreground" data-testid={`admin-email-${admin.id}`}>{admin.email}</p>
                         <p className="text-xs text-muted-foreground">
-                          Created: {new Date(admin.createdAt).toLocaleDateString()}
+                          Joined {new Date(admin.createdAt).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => setAdminToDelete(admin.id)}
+                      onClick={() => setUserToDelete({ 
+                        id: admin.id, 
+                        type: 'admin', 
+                        name: `${admin.firstName} ${admin.lastName}` 
+                      })}
                       data-testid={`button-delete-admin-${admin.id}`}
                     >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 ))}
@@ -494,28 +670,92 @@ export default function AdminDashboard() {
         </Card>
       )}
 
-      {/* Delete Admin Confirmation Dialog */}
-      <AlertDialog open={!!adminToDelete} onOpenChange={() => setAdminToDelete(null)}>
-        <AlertDialogContent>
+      {/* Delete User Confirmation Dialog */}
+      <AlertDialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
+        <AlertDialogContent data-testid="dialog-delete-user">
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this admin user. This action cannot be undone.
-              You cannot delete your own admin account.
+              This will permanently delete the {userToDelete?.type} account for{' '}
+              <strong>{userToDelete?.name}</strong>. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => adminToDelete && deleteAdminMutation.mutate(adminToDelete)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteUser}
+              className="bg-red-600 hover:bg-red-700"
               data-testid="button-confirm-delete"
             >
-              Delete Admin
+              Delete {userToDelete?.type}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Tutor Details Dialog */}
+      <Dialog open={!!selectedTutor} onOpenChange={() => setSelectedTutor(null)}>
+        <DialogContent className="max-w-2xl" data-testid="dialog-tutor-details">
+          <DialogHeader>
+            <DialogTitle>Tutor Profile Details</DialogTitle>
+            <DialogDescription>
+              Complete information for {selectedTutor?.user?.firstName} {selectedTutor?.user?.lastName}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTutor && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="font-medium">Name</p>
+                  <p className="text-muted-foreground">
+                    {selectedTutor.user?.firstName} {selectedTutor.user?.lastName}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium">Email</p>
+                  <p className="text-muted-foreground">{selectedTutor.user?.email}</p>
+                </div>
+                <div>
+                  <p className="font-medium">Phone</p>
+                  <p className="text-muted-foreground">{selectedTutor.profile.phone}</p>
+                </div>
+                <div>
+                  <p className="font-medium">Hourly Rate</p>
+                  <p className="text-muted-foreground">${selectedTutor.profile.hourlyRate}/hour</p>
+                </div>
+                <div>
+                  <p className="font-medium">Education</p>
+                  <p className="text-muted-foreground">{selectedTutor.profile.education}</p>
+                </div>
+                <div>
+                  <p className="font-medium">Experience</p>
+                  <p className="text-muted-foreground">{selectedTutor.profile.experience}</p>
+                </div>
+                <div>
+                  <p className="font-medium">Verification Status</p>
+                  <p className="text-muted-foreground">
+                    {selectedTutor.profile.isVerified ? (
+                      <Badge variant="default" className="bg-green-600">Verified</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-orange-600 border-orange-600">Pending</Badge>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium">Account Status</p>
+                  <p className="text-muted-foreground">
+                    {selectedTutor.profile.isActive ? 'Active' : 'Inactive'}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="font-medium mb-2">Bio</p>
+                <p className="text-muted-foreground">{selectedTutor.profile.bio}</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

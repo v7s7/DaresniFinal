@@ -82,11 +82,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { role } = chooseRoleSchema.parse(req.body);
       const user = req.user!;
 
+      // Prevent users from choosing admin role (admin role can only be set directly in database)
+      if (role === 'admin') {
+        return res.status(403).json({ 
+          message: 'Admin role cannot be self-assigned', 
+          fieldErrors: {} 
+        });
+      }
+
       // Update user role
       await db
         .update(users)
         .set({ 
-          role: role as 'student' | 'tutor' | 'admin',
+          role: role as 'student' | 'tutor',
           updatedAt: new Date() 
         })
         .where(eq(users.id, user.id));
@@ -478,6 +486,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Get all students
+  app.get('/api/admin/students', requireUser, requireAdmin, async (req, res) => {
+    try {
+      const students = await db
+        .select()
+        .from(users)
+        .where(eq(users.role, 'student'))
+        .orderBy(users.createdAt);
+
+      res.json(students);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch students', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Get all tutors (both verified and pending)
+  app.get('/api/admin/tutors', requireUser, requireAdmin, async (req, res) => {
+    try {
+      const allTutors = await db
+        .select({
+          profile: tutorProfiles,
+          user: users
+        })
+        .from(tutorProfiles)
+        .leftJoin(users, eq(tutorProfiles.userId, users.id))
+        .orderBy(tutorProfiles.createdAt);
+
+      res.json(allTutors);
+    } catch (error) {
+      console.error('Error fetching tutors:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch tutors', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
   // Get pending tutors for verification
   app.get('/api/admin/pending-tutors', requireUser, requireAdmin, async (req, res) => {
     try {
@@ -495,6 +544,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Error fetching pending tutors:', error);
       res.status(500).json({ 
         message: 'Failed to fetch pending tutors', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Delete student
+  app.delete('/api/admin/students/:userId', requireUser, requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const [userToDelete] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!userToDelete) {
+        return res.status(404).json({ 
+          message: 'User not found', 
+          fieldErrors: {} 
+        });
+      }
+
+      if (userToDelete.role !== 'student') {
+        return res.status(400).json({ 
+          message: 'User is not a student', 
+          fieldErrors: {} 
+        });
+      }
+
+      await db
+        .delete(users)
+        .where(eq(users.id, userId));
+
+      res.json({ message: 'Student deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete student', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Delete tutor
+  app.delete('/api/admin/tutors/:userId', requireUser, requireAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const [userToDelete] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!userToDelete) {
+        return res.status(404).json({ 
+          message: 'User not found', 
+          fieldErrors: {} 
+        });
+      }
+
+      if (userToDelete.role !== 'tutor') {
+        return res.status(400).json({ 
+          message: 'User is not a tutor', 
+          fieldErrors: {} 
+        });
+      }
+
+      await db
+        .delete(users)
+        .where(eq(users.id, userId));
+
+      res.json({ message: 'Tutor deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting tutor:', error);
+      res.status(500).json({ 
+        message: 'Failed to delete tutor', 
         fieldErrors: {} 
       });
     }
