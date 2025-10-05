@@ -3,13 +3,11 @@ import {
   User as FirebaseUser, 
   onAuthStateChanged, 
   signOut as firebaseSignOut,
-  signInWithPopup,
-  GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile
 } from "firebase/auth";
-import { auth, googleProvider } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { useQueryClient } from "@tanstack/react-query";
 
 // Types
@@ -31,7 +29,6 @@ interface AuthContextType {
   firebaseUser: FirebaseUser | null;
   user: User | null;
   isLoading: boolean;
-  signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, firstName: string, lastName: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -139,18 +136,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, [firebaseUser]);
 
-  const signInWithGoogle = async () => {
-    try {
-      setIsLoading(true);
-      const result = await signInWithPopup(auth, googleProvider);
-      // User data will be fetched automatically by the auth state listener
-    } catch (error) {
-      console.error("Error signing in with Google:", error);
-      setIsLoading(false);
-      throw error;
-    }
-  };
-
   const signInWithEmail = async (email: string, password: string) => {
     try {
       setIsLoading(true);
@@ -205,7 +190,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     firebaseUser,
     user,
     isLoading,
-    signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
     signOut,
