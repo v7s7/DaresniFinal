@@ -22,12 +22,17 @@ This is a comprehensive online tutoring system built with React.js and Express.j
 - Session filtering by status (upcoming, past, cancelled)
 - Backend API optimization with separate queries for admin role to avoid table alias conflicts
 
-## Tutor Profile & Favorites Bug Fixes (October 17, 2025)
+## Tutor Profile & Favorites Features (October 17, 2025)
 - **Fixed TutorProfile data loading**: Corrected queryKey from `["/api", "tutors"]` to `["/api/tutors"]` to properly fetch tutor data
 - **Fixed reviews rendering error**: Added `Array.isArray()` check before mapping reviews to prevent runtime errors
 - **Implemented favorites toggle on TutorBrowse**: Added heart button functionality with React Query mutations for add/remove favorites
 - **Implemented favorites toggle on TutorProfile**: Added heart button with visual feedback (filled red when favorited)
 - **Favorites sync**: Cache invalidation ensures favorite state syncs across browse and profile pages
+- **Dashboard Favorite Tutors Section**: 
+  - Fixed StudentDashboard queryKeys to use proper format (`["/api/tutors"]`, `["/api/sessions"]`)
+  - Favorite tutors now display in dashboard sidebar showing up to 3 favorited tutors
+  - Shows tutor profile picture, name, primary subject, and chat button
+  - Real-time sync with favorites added/removed from browse or profile pages
 
 # User Preferences
 
