@@ -2,6 +2,26 @@
 
 This is a comprehensive online tutoring system built with React.js and Express.js, designed to connect students with verified tutors for scheduled learning sessions. The platform supports user authentication, session booking, real-time messaging, file uploads, and administrative oversight. Students can browse and book tutors across various subjects, while tutors can manage their profiles and schedules. Administrators oversee tutor verification and platform management.
 
+# Recent Changes (October 2025)
+
+## Profile Settings Feature
+- Created comprehensive Profile Settings page allowing users to:
+  - Edit first name and last name
+  - Upload profile pictures to object storage (max 5MB, image files only)
+  - View email and role (read-only)
+- Backend API endpoint (PUT /api/user/profile) with validation for firstName, lastName, and profileImageUrl
+- File upload endpoint (POST /api/upload) using multer and object storage
+- Auth context refresh integration - user data updates immediately after profile changes
+- Dashboard welcome message now displays user's first name dynamically
+
+## My Sessions Page
+- Implemented role-specific session display:
+  - Students see tutor information (name, profile picture)
+  - Tutors see student information (name, profile picture)
+  - Admins see both student and tutor information
+- Session filtering by status (upcoming, past, cancelled)
+- Backend API optimization with separate queries for admin role to avoid table alias conflicts
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
