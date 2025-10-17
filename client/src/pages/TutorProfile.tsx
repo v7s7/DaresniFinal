@@ -11,10 +11,14 @@ import { Calendar } from "@/components/ui/calendar";
 import { BookingModal } from "@/components/BookingModal";
 import { ChatWindow } from "@/components/ChatWindow";
 import { useAuth } from "@/hooks/useAuth";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function TutorProfile() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showChat, setShowChat] = useState(false);
@@ -28,7 +32,78 @@ export default function TutorProfile() {
     enabled: !!id,
   });
 
+  const { data: favorites = [] } = useQuery<string[]>({
+    queryKey: ["/api/favorites"],
+    enabled: !!user,
+  });
+
+  const addFavoriteMutation = useMutation({
+    mutationFn: async (tutorId: string) => {
+      return await apiRequest("/api/favorites", {
+        method: "POST",
+        body: JSON.stringify({ tutorId }),
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
+      toast({
+        title: "Added to favorites!",
+        description: "Tutor has been added to your favorites.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to add tutor to favorites",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeFavoriteMutation = useMutation({
+    mutationFn: async (tutorId: string) => {
+      return await apiRequest(`/api/favorites/${tutorId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
+      toast({
+        title: "Removed from favorites",
+        description: "Tutor has been removed from your favorites.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to remove tutor from favorites",
+        variant: "destructive",
+      });
+    },
+  });
+
   const tutor = tutors?.find((t: any) => t.id === id);
+  const isFavorite = tutor ? favorites.includes(tutor.id) : false;
+
+  const handleFavoriteToggle = () => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to save favorites",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!tutor) return;
+
+    if (isFavorite) {
+      removeFavoriteMutation.mutate(tutor.id);
+    } else {
+      addFavoriteMutation.mutate(tutor.id);
+    }
+  };
 
   const handleBookSession = () => {
     if (!user) {
@@ -163,9 +238,11 @@ export default function TutorProfile() {
                       <Button 
                         variant="outline" 
                         size="lg"
+                        onClick={handleFavoriteToggle}
                         data-testid="button-favorite"
+                        className={isFavorite ? "text-red-500 border-red-500 hover:text-red-600 hover:border-red-600" : ""}
                       >
-                        <i className="far fa-heart"></i>
+                        <i className={isFavorite ? "fas fa-heart" : "far fa-heart"}></i>
                       </Button>
                     </div>
                   </div>

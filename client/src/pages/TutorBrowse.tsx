@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TutorProfile, User, Subject } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { TutorCard } from "@/components/TutorCard";
 import { BookingModal } from "@/components/BookingModal";
+import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function TutorBrowse() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -15,6 +18,9 @@ export default function TutorBrowse() {
   const [sortBy, setSortBy] = useState<string>("rating");
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [selectedTutor, setSelectedTutor] = useState<any>(null);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: tutors, isLoading: tutorsLoading } = useQuery<Array<TutorProfile & { user: User, subjects: Subject[] }>>({
     queryKey: ["/api/tutors"],
@@ -23,6 +29,74 @@ export default function TutorBrowse() {
   const { data: subjects } = useQuery<Subject[]>({
     queryKey: ["/api/subjects"],
   });
+
+  const { data: favorites = [] } = useQuery<string[]>({
+    queryKey: ["/api/favorites"],
+    enabled: !!user,
+  });
+
+  const addFavoriteMutation = useMutation({
+    mutationFn: async (tutorId: string) => {
+      return await apiRequest("/api/favorites", {
+        method: "POST",
+        body: JSON.stringify({ tutorId }),
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
+      toast({
+        title: "Added to favorites!",
+        description: "Tutor has been added to your favorites.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to add tutor to favorites",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeFavoriteMutation = useMutation({
+    mutationFn: async (tutorId: string) => {
+      return await apiRequest(`/api/favorites/${tutorId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
+      toast({
+        title: "Removed from favorites",
+        description: "Tutor has been removed from your favorites.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to remove tutor from favorites",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleFavoriteToggle = (tutorId: string) => {
+    if (!user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to save favorites",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (favorites.includes(tutorId)) {
+      removeFavoriteMutation.mutate(tutorId);
+    } else {
+      addFavoriteMutation.mutate(tutorId);
+    }
+  };
 
   const filteredTutors = Array.isArray(tutors) ? tutors.filter((tutor: any) => {
     const matchesSearch = 
@@ -174,9 +248,8 @@ export default function TutorBrowse() {
                 tutor={tutor}
                 onBook={() => handleBookSession(tutor)}
                 onViewProfile={() => window.location.href = `/tutor/${tutor.id}`}
-                onFavorite={() => {
-                  // Handle favorite logic
-                }}
+                onFavorite={() => handleFavoriteToggle(tutor.id)}
+                isFavorite={favorites.includes(tutor.id)}
               />
             ))}
           </div>

@@ -8,9 +8,10 @@ interface TutorCardProps {
   onBook: () => void;
   onViewProfile: () => void;
   onFavorite: () => void;
+  isFavorite?: boolean;
 }
 
-export function TutorCard({ tutor, onBook, onViewProfile, onFavorite }: TutorCardProps) {
+export function TutorCard({ tutor, onBook, onViewProfile, onFavorite, isFavorite = false }: TutorCardProps) {
   const averageRating = parseFloat(tutor.totalRating || '0');
   const totalReviews = tutor.totalReviews || 0;
 
@@ -128,8 +129,9 @@ export function TutorCard({ tutor, onBook, onViewProfile, onFavorite }: TutorCar
             size="icon"
             onClick={onFavorite}
             data-testid="button-favorite"
+            className={isFavorite ? "text-red-500 border-red-500 hover:text-red-600 hover:border-red-600" : ""}
           >
-            <i className="far fa-heart"></i>
+            <i className={isFavorite ? "fas fa-heart" : "far fa-heart"}></i>
           </Button>
         </div>
 
