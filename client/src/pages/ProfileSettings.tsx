@@ -23,7 +23,7 @@ const profileSchema = z.object({
 type ProfileFormData = z.infer<typeof profileSchema>;
 
 export default function ProfileSettings() {
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isUploading, setIsUploading] = useState(false);
@@ -46,8 +46,9 @@ export default function ProfileSettings() {
         headers: { "Content-Type": "application/json" },
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["/api/me"] });
+      await refreshUserData();
       toast({
         title: "Success!",
         description: "Your profile has been updated.",
