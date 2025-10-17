@@ -761,8 +761,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get('/api/sessions', requireUser, async (req, res) => {
     try {
-      // For now, return empty array - sessions will be implemented later
-      res.json([]);
+      const user = req.user!;
+      let sessionsData;
+
+      if (user.role === 'student') {
+        // Fetch sessions where user is the student
+        sessionsData = await db
+          .select({
+            session: sessions_table,
+            tutor: tutorProfiles,
+            tutorUser: users,
+            subject: subjects
+          })
+          .from(sessions_table)
+          .leftJoin(tutorProfiles, eq(sessions_table.tutorId, tutorProfiles.id))
+          .leftJoin(users, eq(tutorProfiles.userId, users.id))
+          .leftJoin(subjects, eq(sessions_table.subjectId, subjects.id))
+          .where(eq(sessions_table.studentId, user.id))
+          .orderBy(desc(sessions_table.scheduledAt));
+      } else if (user.role === 'tutor') {
+        // Find tutor profile first
+        const [tutorProfile] = await db
+          .select()
+          .from(tutorProfiles)
+          .where(eq(tutorProfiles.userId, user.id))
+          .limit(1);
+
+        if (!tutorProfile) {
+          return res.json([]);
+        }
+
+        // Fetch sessions where user is the tutor
+        sessionsData = await db
+          .select({
+            session: sessions_table,
+            student: users,
+            subject: subjects
+          })
+          .from(sessions_table)
+          .leftJoin(users, eq(sessions_table.studentId, users.id))
+          .leftJoin(subjects, eq(sessions_table.subjectId, subjects.id))
+          .where(eq(sessions_table.tutorId, tutorProfile.id))
+          .orderBy(desc(sessions_table.scheduledAt));
+      } else {
+        // Admins see all sessions - need to fetch tutor and student separately
+        const allSessions = await db
+          .select({
+            session: sessions_table,
+            tutor: tutorProfiles,
+            subject: subjects
+          })
+          .from(sessions_table)
+          .leftJoin(tutorProfiles, eq(sessions_table.tutorId, tutorProfiles.id))
+          .leftJoin(subjects, eq(sessions_table.subjectId, subjects.id))
+          .orderBy(desc(sessions_table.scheduledAt));
+
+        // Fetch tutor users and students separately
+        sessionsData = await Promise.all(
+          allSessions.map(async (item) => {
+            const [tutorUser] = item.tutor 
+              ? await db.select().from(users).where(eq(users.id, item.tutor.userId)).limit(1)
+              : [null];
+            
+            const [student] = await db
+              .select()
+              .from(users)
+              .where(eq(users.id, item.session.studentId))
+              .limit(1);
+
+            return {
+              session: item.session,
+              tutor: item.tutor,
+              tutorUser,
+              student,
+              subject: item.subject
+            };
+          })
+        );
+      }
+
+      // Format the response based on user role
+      const formattedSessions = sessionsData.map((data: any) => {
+        if (user.role === 'student') {
+          return {
+            ...data.session,
+            tutor: {
+              ...data.tutor,
+              user: data.tutorUser
+            },
+            subject: data.subject
+          };
+        } else if (user.role === 'tutor') {
+          return {
+            ...data.session,
+            student: data.student,
+            subject: data.subject
+          };
+        } else {
+          return {
+            ...data.session,
+            tutor: {
+              ...data.tutor,
+              user: data.tutorUser
+            },
+            student: data.student,
+            subject: data.subject
+          };
+        }
+      });
+
+      res.json(formattedSessions);
     } catch (error) {
       console.error('Error fetching sessions:', error);
       res.status(500).json({ 

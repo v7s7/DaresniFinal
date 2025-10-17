@@ -13,6 +13,7 @@ import TutorBrowse from "@/pages/TutorBrowse";
 import TutorProfile from "@/pages/TutorProfile";
 import CompleteSignup from "@/pages/CompleteSignup";
 import AdminSetup from "@/pages/AdminSetup";
+import MySessions from "@/pages/MySessions";
 import Navbar from "@/components/Navbar";
 
 function Router() {
@@ -55,15 +56,9 @@ function Router() {
             />
             <Route path="/tutors" component={TutorBrowse} />
             <Route path="/tutor/:id" component={TutorProfile} />
+            <Route path="/sessions" component={MySessions} />
             <Route
               path="/profile"
-              component={() => {
-                if (user?.role === "tutor") return <TutorDashboard />;
-                return <StudentDashboard />;
-              }}
-            />
-            <Route
-              path="/sessions"
               component={() => {
                 if (user?.role === "tutor") return <TutorDashboard />;
                 return <StudentDashboard />;

@@ -11,7 +11,7 @@ import { LogOut, User, BookOpen } from "lucide-react";
 export default function Navbar() {
   const { user, signOut } = useAuth();
   const { toast } = useToast();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -113,7 +113,7 @@ export default function Navbar() {
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
-                  onClick={() => window.location.href = '/'}
+                  onClick={() => navigate('/')}
                   data-testid="menu-item-dashboard"
                 >
                   <i className="fas fa-home mr-2"></i>
@@ -122,13 +122,16 @@ export default function Navbar() {
                 {user?.role === 'student' && (
                   <>
                     <DropdownMenuItem 
-                      onClick={() => window.location.href = '/tutors'}
+                      onClick={() => navigate('/tutors')}
                       data-testid="menu-item-find-tutors"
                     >
                       <i className="fas fa-search mr-2"></i>
                       Find Tutors
                     </DropdownMenuItem>
-                    <DropdownMenuItem data-testid="menu-item-my-sessions">
+                    <DropdownMenuItem 
+                      onClick={() => navigate('/sessions')}
+                      data-testid="menu-item-my-sessions"
+                    >
                       <i className="fas fa-calendar mr-2"></i>
                       My Sessions
                     </DropdownMenuItem>
@@ -136,6 +139,13 @@ export default function Navbar() {
                 )}
                 {user?.role === 'tutor' && (
                   <>
+                    <DropdownMenuItem 
+                      onClick={() => navigate('/sessions')}
+                      data-testid="menu-item-my-sessions"
+                    >
+                      <i className="fas fa-calendar mr-2"></i>
+                      My Sessions
+                    </DropdownMenuItem>
                     <DropdownMenuItem data-testid="menu-item-my-students">
                       <i className="fas fa-users mr-2"></i>
                       My Students
