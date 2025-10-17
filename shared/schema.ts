@@ -148,6 +148,15 @@ export const fileUploads = pgTable("file_uploads", {
   uploadedAt: timestamp("uploaded_at").defaultNow(),
 });
 
+// Favorites (student favorites tutors)
+export const favorites = pgTable("favorites", {
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tutorId: varchar("tutor_id").notNull().references(() => tutorProfiles.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  pk: sql`PRIMARY KEY (${table.userId}, ${table.tutorId})`
+}));
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   tutorProfile: one(tutorProfiles, {
@@ -159,6 +168,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   receivedMessages: many(messages, { relationName: 'receivedMessages' }),
   fileUploads: many(fileUploads),
   reviews: many(reviews),
+  favorites: many(favorites),
 }));
 
 export const tutorProfilesRelations = relations(tutorProfiles, ({ one, many }) => ({
@@ -169,6 +179,7 @@ export const tutorProfilesRelations = relations(tutorProfiles, ({ one, many }) =
   subjects: many(tutorSubjects),
   sessions: many(sessions_table),
   reviews: many(reviews),
+  favorites: many(favorites),
 }));
 
 export const subjectsRelations = relations(subjects, ({ many }) => ({
@@ -245,6 +256,17 @@ export const fileUploadsRelations = relations(fileUploads, ({ one }) => ({
   session: one(sessions_table, {
     fields: [fileUploads.sessionId],
     references: [sessions_table.id],
+  }),
+}));
+
+export const favoritesRelations = relations(favorites, ({ one }) => ({
+  user: one(users, {
+    fields: [favorites.userId],
+    references: [users.id],
+  }),
+  tutor: one(tutorProfiles, {
+    fields: [favorites.tutorId],
+    references: [tutorProfiles.id],
   }),
 }));
 
@@ -332,6 +354,11 @@ export const insertFileUploadSchema = createInsertSchema(fileUploads).pick({
   fileSize: true,
 });
 
+export const insertFavoriteSchema = createInsertSchema(favorites).pick({
+  userId: true,
+  tutorId: true,
+});
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -343,6 +370,7 @@ export type Review = typeof reviews.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type FileUpload = typeof fileUploads.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type Favorite = typeof favorites.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertSubject = z.infer<typeof insertSubjectSchema>;
@@ -353,6 +381,7 @@ export type InsertReview = z.infer<typeof insertReviewSchema>;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type InsertFileUpload = z.infer<typeof insertFileUploadSchema>;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type InsertFavorite = z.infer<typeof insertFavoriteSchema>;
 export type ChooseRole = z.infer<typeof chooseRoleSchema>;
 
 // Extended types for API responses

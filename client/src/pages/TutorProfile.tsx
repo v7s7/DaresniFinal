@@ -20,11 +20,11 @@ export default function TutorProfile() {
   const [showChat, setShowChat] = useState(false);
 
   const { data: tutors } = useQuery<Array<TutorProfile & { user: User, subjects: Subject[] }>>({
-    queryKey: ["/api", "tutors"],
+    queryKey: ["/api/tutors"],
   });
 
   const { data: reviews } = useQuery<Array<Review & { student: User }>>({
-    queryKey: ["/api", "reviews", id],
+    queryKey: ["/api/reviews", id],
     enabled: !!id,
   });
 

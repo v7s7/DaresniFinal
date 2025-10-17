@@ -15,9 +15,11 @@ import {
   sessions_table,
   reviews,
   messages,
+  favorites,
   chooseRoleSchema,
   updateTutorProfileSchema,
-  insertNotificationSchema
+  insertNotificationSchema,
+  insertFavoriteSchema
 } from "@shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { sendToAdmins, createTutorRegistrationEmail } from "./email";
@@ -1011,6 +1013,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Error fetching messages:', error);
       res.status(500).json({ 
         message: 'Failed to fetch messages', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // === FAVORITES ===
+  
+  // Get user's favorite tutors
+  app.get('/api/favorites', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      
+      const userFavorites = await db
+        .select()
+        .from(favorites)
+        .where(eq(favorites.userId, user.id));
+      
+      res.json(userFavorites.map(f => f.tutorId));
+    } catch (error) {
+      console.error('Error fetching favorites:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch favorites', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Add tutor to favorites
+  app.post('/api/favorites', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      const validatedData = insertFavoriteSchema.parse({
+        userId: user.id,
+        tutorId: req.body.tutorId,
+      });
+
+      // Check if already favorited
+      const existing = await db
+        .select()
+        .from(favorites)
+        .where(
+          and(
+            eq(favorites.userId, user.id),
+            eq(favorites.tutorId, validatedData.tutorId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        return res.status(400).json({ 
+          message: 'Tutor already in favorites',
+          fieldErrors: {} 
+        });
+      }
+
+      await db.insert(favorites).values(validatedData);
+      res.json({ message: 'Tutor added to favorites' });
+    } catch (error) {
+      console.error('Error adding favorite:', error);
+      res.status(500).json({ 
+        message: 'Failed to add favorite', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Remove tutor from favorites
+  app.delete('/api/favorites/:tutorId', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      const { tutorId } = req.params;
+
+      await db
+        .delete(favorites)
+        .where(
+          and(
+            eq(favorites.userId, user.id),
+            eq(favorites.tutorId, tutorId)
+          )
+        );
+
+      res.json({ message: 'Tutor removed from favorites' });
+    } catch (error) {
+      console.error('Error removing favorite:', error);
+      res.status(500).json({ 
+        message: 'Failed to remove favorite', 
         fieldErrors: {} 
       });
     }
