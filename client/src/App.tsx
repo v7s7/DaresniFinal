@@ -14,6 +14,7 @@ import TutorProfile from "@/pages/TutorProfile";
 import CompleteSignup from "@/pages/CompleteSignup";
 import AdminSetup from "@/pages/AdminSetup";
 import MySessions from "@/pages/MySessions";
+import ProfileSettings from "@/pages/ProfileSettings";
 import Navbar from "@/components/Navbar";
 
 function Router() {
@@ -57,6 +58,7 @@ function Router() {
             <Route path="/tutors" component={TutorBrowse} />
             <Route path="/tutor/:id" component={TutorProfile} />
             <Route path="/sessions" component={MySessions} />
+            <Route path="/profile-settings" component={ProfileSettings} />
             <Route
               path="/profile"
               component={() => {

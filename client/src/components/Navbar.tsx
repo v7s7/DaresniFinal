@@ -156,7 +156,10 @@ export default function Navbar() {
                     </DropdownMenuItem>
                   </>
                 )}
-                <DropdownMenuItem data-testid="menu-item-profile">
+                <DropdownMenuItem 
+                  onClick={() => navigate('/profile-settings')}
+                  data-testid="menu-item-profile"
+                >
                   <i className="fas fa-user mr-2"></i>
                   Profile Settings
                 </DropdownMenuItem>

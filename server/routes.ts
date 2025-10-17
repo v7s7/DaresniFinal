@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import multer from "multer";
 import { requireUser, requireAdmin, type AuthUser } from "./firebase-admin";
 import { db } from "./db";
 import { 
@@ -62,6 +63,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
+          profileImageUrl: user.profileImageUrl,
           role: user.role,
         },
         hasTutorProfile: !!tutorProfile,
@@ -72,6 +74,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         message: 'Failed to fetch user data', 
         fieldErrors: {} 
+      });
+    }
+  });
+
+  // Update user profile
+  app.put('/api/user/profile', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      const updateSchema = z.object({
+        firstName: z.string().min(1).optional(),
+        lastName: z.string().min(1).optional(),
+        profileImageUrl: z.string().url().optional(),
+      });
+
+      const updateData = updateSchema.parse(req.body);
+
+      // Update user profile
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          ...updateData,
+          updatedAt: new Date()
+        })
+        .where(eq(users.id, user.id))
+        .returning();
+
+      res.json({ 
+        message: 'Profile updated successfully',
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          firstName: updatedUser.firstName,
+          lastName: updatedUser.lastName,
+          profileImageUrl: updatedUser.profileImageUrl,
+          role: updatedUser.role,
+        }
+      });
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ 
+          message: 'Invalid request data', 
+          fieldErrors: error.flatten().fieldErrors 
+        });
+      } else {
+        res.status(500).json({ 
+          message: 'Failed to update profile', 
+          fieldErrors: {} 
+        });
+      }
+    }
+  });
+
+  // Configure multer for file uploads
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (req, file, cb) => {
+      if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('Only image files are allowed'));
+      }
+    },
+  });
+
+  // Upload profile picture
+  app.post('/api/upload', requireUser, upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded' });
+      }
+
+      const user = req.user!;
+      const file = req.file;
+      
+      // Generate unique filename
+      const fileExt = path.extname(file.originalname);
+      const fileName = `profile-${user.id}-${Date.now()}${fileExt}`;
+      const publicDir = process.env.PUBLIC_OBJECT_SEARCH_PATHS?.split(',')[0] || '/public';
+      const filePath = path.join(publicDir, fileName);
+
+      // Save file to object storage
+      await fs.promises.writeFile(filePath, file.buffer);
+
+      // Generate URL for the uploaded file
+      const fileUrl = `/public/${fileName}`;
+
+      res.json({ 
+        url: fileUrl,
+        message: 'File uploaded successfully' 
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+      res.status(500).json({ 
+        message: 'Failed to upload file',
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   });
