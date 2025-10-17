@@ -341,7 +341,7 @@ export default function TutorProfile() {
                     <CardTitle>Student Reviews</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {reviews && reviews.length > 0 ? (
+                    {Array.isArray(reviews) && reviews.length > 0 ? (
                       <div className="space-y-6">
                         {reviews.map((review: any) => (
                           <div key={review.id} className="border-b border-border pb-6 last:border-b-0">
