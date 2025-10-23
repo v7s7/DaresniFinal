@@ -98,7 +98,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updateSchema = z.object({
         firstName: z.string().min(1).optional(),
         lastName: z.string().min(1).optional(),
-        profileImageUrl: z.string().url().optional().or(z.literal("")).nullable(),
+        profileImageUrl: z.string().optional().or(z.literal("")).nullable(),
       });
 
       const updateData = updateSchema.parse(req.body);

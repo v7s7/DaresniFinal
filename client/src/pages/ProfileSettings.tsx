@@ -17,7 +17,7 @@ import { Loader2, Upload, User } from "lucide-react";
 const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  profileImageUrl: z.string().url().optional().or(z.literal("")),
+  profileImageUrl: z.string().optional().or(z.literal("")),
 });
 
 type ProfileFormData = z.infer<typeof profileSchema>;

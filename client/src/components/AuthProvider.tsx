@@ -16,6 +16,7 @@ interface User {
   email: string;
   firstName?: string | null;
   lastName?: string | null;
+  profileImageUrl?: string | null;
   role: 'student' | 'tutor' | 'admin';
 }
 
