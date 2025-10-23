@@ -34,6 +34,20 @@ This is a comprehensive online tutoring system built with React.js and Express.j
   - Shows tutor profile picture, name, primary subject, and chat button
   - Real-time sync with favorites added/removed from browse or profile pages
 
+## Smart Tutor Matching Wizard (October 23, 2025)
+- **Find Best Tutor Feature**: Added intelligent wizard to help students find tutors matching their specific needs
+- **Multi-step Form Process**:
+  - Step 1: Subject selection - Students choose from available subjects with visual cards
+  - Step 2: Budget selection - Four price tiers (Under $25/hr, $50/hr, $100/hr, or Any Budget)
+  - Step 3: Experience level - Filter by tutor ratings (Any, 3.5+ stars, or 4.5+ stars)
+- **Smart Filtering**: Applies combined filters to show only tutors matching all criteria
+- **Visual Feedback**: 
+  - Progress indicators show current step
+  - "Smart Filters Active" card displays applied criteria with badges
+  - Toast notifications for filter apply/clear actions
+  - Clear button to remove wizard filters and return to full list
+- **Seamless Integration**: Works alongside existing search and filter controls without conflicts
+
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
