@@ -47,6 +47,7 @@ export interface AuthUser {
   role: 'student' | 'tutor' | 'admin';
   firstName?: string | null;
   lastName?: string | null;
+  profileImageUrl?: string | null;
 }
 
 // Extend Express Request type to include user
@@ -103,7 +104,7 @@ export const requireUser = async (req: Request, res: Response, next: NextFunctio
 
     let user;
     if (existingUser) {
-      // Update existing user
+      // Update existing user - preserve profileImageUrl
       [user] = await db
         .update(users)
         .set({
@@ -135,6 +136,7 @@ export const requireUser = async (req: Request, res: Response, next: NextFunctio
       role: user.role! as 'student' | 'tutor' | 'admin',
       firstName: user.firstName,
       lastName: user.lastName,
+      profileImageUrl: user.profileImageUrl,
     };
 
     next();
