@@ -45,6 +45,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ status: 'ok', message: 'Server is running' });
   });
 
+  // Serve uploaded files
+  const uploadsDir = path.join(process.cwd(), 'uploads');
+  app.use('/uploads', (req, res, next) => {
+    const filePath = path.join(uploadsDir, req.path);
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).send('File not found');
+    }
+  });
+
   // === AUTH ROUTES ===
   
   // Get current user info
@@ -162,17 +173,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate unique filename
       const fileExt = path.extname(file.originalname);
       const fileName = `profile-${user.id}-${Date.now()}${fileExt}`;
-      const publicDir = process.env.PUBLIC_OBJECT_SEARCH_PATHS?.split(',')[0] || '/public';
-      const filePath = path.join(publicDir, fileName);
+      
+      // Use local uploads directory
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      const filePath = path.join(uploadsDir, fileName);
 
       // Ensure directory exists
-      await fs.promises.mkdir(publicDir, { recursive: true });
+      await fs.promises.mkdir(uploadsDir, { recursive: true });
 
-      // Save file to object storage
+      // Save file to uploads directory
       await fs.promises.writeFile(filePath, file.buffer);
 
       // Generate URL for the uploaded file
-      const fileUrl = `/public/${fileName}`;
+      const fileUrl = `/uploads/${fileName}`;
 
       res.json({ 
         url: fileUrl,
