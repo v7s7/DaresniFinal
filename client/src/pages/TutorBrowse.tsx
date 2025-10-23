@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { TutorCard } from "@/components/TutorCard";
 import { BookingModal } from "@/components/BookingModal";
+import { TutorMatchWizard, type TutorFilters } from "@/components/TutorMatchWizard";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -18,6 +19,8 @@ export default function TutorBrowse() {
   const [sortBy, setSortBy] = useState<string>("rating");
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [selectedTutor, setSelectedTutor] = useState<any>(null);
+  const [showWizard, setShowWizard] = useState(false);
+  const [wizardFilters, setWizardFilters] = useState<TutorFilters | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -107,7 +110,26 @@ export default function TutorBrowse() {
     const matchesSubject = selectedSubject === "all" || 
       tutor.subjects.some((s: any) => s.id === selectedSubject);
     
-    return matchesSearch && matchesSubject;
+    // Apply wizard filters if they exist
+    let matchesWizard = true;
+    if (wizardFilters) {
+      // Filter by subject from wizard
+      if (wizardFilters.subjectId) {
+        matchesWizard = matchesWizard && tutor.subjects.some((s: any) => s.id === wizardFilters.subjectId);
+      }
+      
+      // Filter by max rate (hourlyRate is in cents)
+      if (wizardFilters.maxRate) {
+        matchesWizard = matchesWizard && (tutor.hourlyRate || 0) <= wizardFilters.maxRate;
+      }
+      
+      // Filter by minimum rating
+      if (wizardFilters.minRating) {
+        matchesWizard = matchesWizard && parseFloat(tutor.totalRating || '0') >= wizardFilters.minRating;
+      }
+    }
+    
+    return matchesSearch && matchesSubject && matchesWizard;
   }).sort((a: any, b: any) => {
     switch (sortBy) {
       case "rating":
@@ -133,17 +155,47 @@ export default function TutorBrowse() {
     // Booking logic would be handled in the modal
   };
 
+  const handleWizardComplete = (filters: TutorFilters) => {
+    setWizardFilters(filters);
+    setShowWizard(false);
+    toast({
+      title: "Filters applied!",
+      description: `Showing tutors that match your preferences`,
+    });
+  };
+
+  const clearWizardFilters = () => {
+    setWizardFilters(null);
+    toast({
+      title: "Smart filters cleared",
+      description: "Showing all tutors",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-background pt-16">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-4" data-testid="text-browse-title">
-            Find Your Perfect Tutor
-          </h1>
-          <p className="text-muted-foreground">
-            Browse through our verified tutors and book your ideal learning session
-          </p>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-foreground" data-testid="text-browse-title">
+                Find Your Perfect Tutor
+              </h1>
+              <p className="text-muted-foreground mt-2">
+                Browse through our verified tutors and book your ideal learning session
+              </p>
+            </div>
+            <Button 
+              size="lg"
+              className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
+              onClick={() => setShowWizard(true)}
+              data-testid="button-find-best-tutor"
+            >
+              <i className="fas fa-magic mr-2"></i>
+              Find Best Tutor
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -203,6 +255,53 @@ export default function TutorBrowse() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Smart Filters Active Indicator */}
+        {wizardFilters && (
+          <Card className="mb-6 border-primary bg-primary/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="bg-primary text-primary-foreground rounded-full p-2">
+                    <i className="fas fa-magic"></i>
+                  </div>
+                  <div>
+                    <div className="font-semibold">Smart Filters Active</div>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {wizardFilters.subjectName && (
+                        <Badge variant="secondary">
+                          <i className="fas fa-book mr-1"></i>
+                          {wizardFilters.subjectName}
+                        </Badge>
+                      )}
+                      {wizardFilters.maxRate && wizardFilters.maxRate < 999999 && (
+                        <Badge variant="secondary">
+                          <i className="fas fa-dollar-sign mr-1"></i>
+                          Under ${wizardFilters.maxRate / 100}/hr
+                        </Badge>
+                      )}
+                      {wizardFilters.minRating && wizardFilters.minRating > 0 && (
+                        <Badge variant="secondary">
+                          <i className="fas fa-star mr-1"></i>
+                          {wizardFilters.minRating}+ rating
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={clearWizardFilters}
+                  data-testid="button-clear-wizard-filters"
+                >
+                  <i className="fas fa-times mr-2"></i>
+                  Clear
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Results */}
         <div className="mb-6">
@@ -294,6 +393,13 @@ export default function TutorBrowse() {
           onConfirm={handleBookingConfirm}
         />
       )}
+
+      {/* Tutor Match Wizard */}
+      <TutorMatchWizard
+        open={showWizard}
+        onClose={() => setShowWizard(false)}
+        onComplete={handleWizardComplete}
+      />
     </div>
   );
 }
