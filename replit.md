@@ -11,6 +11,7 @@ This is a comprehensive online tutoring system built with React.js and Express.j
   - View email and role (read-only)
 - Backend API endpoint (PUT /api/user/profile) with validation for firstName, lastName, and profileImageUrl
 - File upload endpoint (POST /api/upload) using multer and object storage
+  - **Fixed upload directory creation**: Added automatic directory creation before file write to prevent ENOENT errors
 - Auth context refresh integration - user data updates immediately after profile changes
 - Dashboard welcome message now displays user's first name dynamically
 

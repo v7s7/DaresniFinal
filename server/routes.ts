@@ -165,6 +165,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const publicDir = process.env.PUBLIC_OBJECT_SEARCH_PATHS?.split(',')[0] || '/public';
       const filePath = path.join(publicDir, fileName);
 
+      // Ensure directory exists
+      await fs.promises.mkdir(publicDir, { recursive: true });
+
       // Save file to object storage
       await fs.promises.writeFile(filePath, file.buffer);
 
