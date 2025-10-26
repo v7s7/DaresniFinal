@@ -41,6 +41,11 @@ export default function Landing() {
     queryKey: ["/api/tutors"],
   });
 
+  // Fetch platform statistics
+  const { data: stats } = useQuery<{ tutors: number, students: number, sessions: number }>({
+    queryKey: ["/api/stats"],
+  });
+
   // Get top 6 tutors by rating for featured section
   const featuredTutors = allTutors
     .filter(tutor => tutor.isActive && tutor.isVerified)
@@ -133,15 +138,21 @@ export default function Landing() {
               
               <div className="flex items-center space-x-8 pt-8">
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-primary" data-testid="text-total-tutors">2,500+</div>
+                  <div className="text-3xl font-bold text-primary" data-testid="text-total-tutors">
+                    {stats?.tutors || 0}
+                  </div>
                   <div className="text-muted-foreground">Expert Tutors</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-primary" data-testid="text-total-students">50,000+</div>
+                  <div className="text-3xl font-bold text-primary" data-testid="text-total-students">
+                    {stats?.students || 0}
+                  </div>
                   <div className="text-muted-foreground">Happy Students</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-primary" data-testid="text-total-sessions">1M+</div>
+                  <div className="text-3xl font-bold text-primary" data-testid="text-total-sessions">
+                    {stats?.sessions || 0}
+                  </div>
                   <div className="text-muted-foreground">Sessions Completed</div>
                 </div>
               </div>

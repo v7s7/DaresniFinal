@@ -210,10 +210,6 @@ export default function TutorProfile() {
                           ({totalReviews} reviews)
                         </span>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                        <span className="text-sm text-muted-foreground">Available today</span>
-                      </div>
                     </div>
 
                     <div className="flex space-x-4">
@@ -434,33 +430,6 @@ export default function TutorProfile() {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            {/* Quick Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Quick Stats</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Response time:</span>
-                    <span className="font-medium">&lt; 1 hour</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total students:</span>
-                    <span className="font-medium">150+</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Sessions completed:</span>
-                    <span className="font-medium">500+</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Member since:</span>
-                    <span className="font-medium">Jan 2023</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Contact */}
             <Card>
               <CardHeader>

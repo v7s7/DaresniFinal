@@ -45,6 +45,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ status: 'ok', message: 'Server is running' });
   });
 
+  // Platform statistics (public - for landing page)
+  app.get('/api/stats', async (req, res) => {
+    try {
+      // Count verified and active tutors
+      const tutorsResult = await db
+        .select()
+        .from(tutorProfiles)
+        .where(and(eq(tutorProfiles.isVerified, true), eq(tutorProfiles.isActive, true)));
+      
+      // Count students
+      const studentsResult = await db
+        .select()
+        .from(users)
+        .where(eq(users.role, 'student'));
+      
+      // Count completed sessions
+      const sessionsResult = await db
+        .select()
+        .from(sessions_table)
+        .where(eq(sessions_table.status, 'completed'));
+
+      res.json({
+        tutors: tutorsResult.length,
+        students: studentsResult.length,
+        sessions: sessionsResult.length
+      });
+    } catch (error) {
+      console.error('Error fetching platform stats:', error);
+      res.status(500).json({ 
+        message: 'Failed to fetch platform statistics', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
   // Serve uploaded files
   const uploadsDir = path.join(process.cwd(), 'uploads');
   app.use('/uploads', (req, res, next) => {
