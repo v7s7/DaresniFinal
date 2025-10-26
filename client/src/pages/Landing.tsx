@@ -1,104 +1,51 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AuthModal } from "@/components/AuthModal";
 import { BookOpen, Users, Clock, Star, ChevronRight } from "lucide-react";
+import type { Subject, TutorProfile, User, Review } from "@shared/schema";
 
-const subjects = [
-  {
-    name: "Mathematics",
-    description: "Algebra, Calculus, Geometry",
-    icon: "fas fa-calculator",
-    tutorCount: "324 tutors available",
-    category: "mathematics"
-  },
-  {
-    name: "Science",
-    description: "Physics, Chemistry, Biology",
-    icon: "fas fa-flask",
-    tutorCount: "289 tutors available",
-    category: "science"
-  },
-  {
-    name: "Languages",
-    description: "English, Spanish, French",
-    icon: "fas fa-language",
-    tutorCount: "456 tutors available",
-    category: "languages"
-  },
-  {
-    name: "Programming",
-    description: "Python, JavaScript, Java",
-    icon: "fas fa-code",
-    tutorCount: "187 tutors available",
-    category: "programming"
-  }
-];
+const subjectIcons: Record<string, string> = {
+  "Mathematics": "fas fa-calculator",
+  "Science": "fas fa-flask",
+  "Languages": "fas fa-language",
+  "Programming": "fas fa-code",
+  "Physics": "fas fa-atom",
+  "Chemistry": "fas fa-flask",
+  "Biology": "fas fa-dna",
+  "English": "fas fa-book",
+  "History": "fas fa-landmark",
+  "Art": "fas fa-palette",
+  "Music": "fas fa-music",
+  "Business": "fas fa-briefcase"
+};
 
-const featuredTutors = [
-  {
-    id: "tutor-1",
-    name: "Dr. Michael Chen",
-    subject: "Mathematics & Physics",
-    bio: "PhD in Mathematics with 8+ years of tutoring experience. Specializes in calculus and advanced algebra.",
-    hourlyRate: "$45/hr",
-    rating: "5.0",
-    reviews: "127 reviews",
-    expertise: ["Calculus", "Algebra", "Physics"],
-    profileImage: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150",
-    isAvailable: true
-  },
-  {
-    id: "tutor-2",
-    name: "Prof. Sarah Johnson",
-    subject: "English Literature",
-    bio: "MA in English Literature. Passionate about helping students excel in writing and literary analysis.",
-    hourlyRate: "$38/hr",
-    rating: "4.9",
-    reviews: "93 reviews",
-    expertise: ["Essay Writing", "Literature", "Grammar"],
-    profileImage: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150",
-    isAvailable: true
-  },
-  {
-    id: "tutor-3",
-    name: "Alex Rodriguez",
-    subject: "Computer Science",
-    bio: "Senior Software Engineer at Google. Expert in algorithms, data structures, and programming languages.",
-    hourlyRate: "$52/hr",
-    rating: "4.8",
-    reviews: "156 reviews",
-    expertise: ["Python", "JavaScript", "Algorithms"],
-    profileImage: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150",
-    isAvailable: false
-  }
-];
-
-const testimonials = [
-  {
-    content: "Dr. Chen helped me understand calculus concepts that I struggled with for months. His teaching style is amazing and I improved my grades significantly!",
-    name: "Emily Parker",
-    role: "High School Student",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100"
-  },
-  {
-    content: "The platform is so easy to use and finding the right tutor was seamless. Sarah helped me improve my essay writing skills tremendously.",
-    name: "James Wilson",
-    role: "College Student",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100"
-  },
-  {
-    content: "As a parent, I love how I can track my daughter's progress and communicate with her tutor. The results speak for themselves!",
-    name: "Lisa Martinez",
-    role: "Parent",
-    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100"
-  }
-];
+type TutorWithDetails = TutorProfile & {
+  user: User | null;
+  subjects: Subject[];
+};
 
 export default function Landing() {
   const [activeTab, setActiveTab] = useState<'student' | 'tutor' | 'admin'>('student');
   const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Fetch real subjects from database
+  const { data: subjects = [], isLoading: subjectsLoading } = useQuery<Subject[]>({
+    queryKey: ["/api/subjects"],
+  });
+
+  // Fetch real tutors from database
+  const { data: allTutors = [], isLoading: tutorsLoading } = useQuery<TutorWithDetails[]>({
+    queryKey: ["/api/tutors"],
+  });
+
+  // Get top 6 tutors by rating for featured section
+  const featuredTutors = allTutors
+    .filter(tutor => tutor.isActive && tutor.isVerified)
+    .sort((a, b) => parseFloat(b.totalRating || '0') - parseFloat(a.totalRating || '0'))
+    .slice(0, 6);
 
   const handleBookSession = () => {
     setShowAuthModal(true);
@@ -124,7 +71,6 @@ export default function Landing() {
             <div className="hidden md:flex items-center space-x-8">
               <a href="#subjects" className="text-white hover:text-gray-200 transition-colors">Find Tutors</a>
               <a href="#how-it-works" className="text-white hover:text-gray-200 transition-colors">How it Works</a>
-              <a href="#testimonials" className="text-white hover:text-gray-200 transition-colors">Reviews</a>
             </div>
             
             <div className="flex items-center space-x-4">
@@ -247,22 +193,48 @@ export default function Landing() {
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {subjects.map((subject, index) => (
-              <Card 
-                key={index} 
-                className="card-hover text-center group cursor-pointer"
-                data-testid={`card-subject-${subject.category}`}
-              >
-                <CardContent className="p-6">
-                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-colors">
-                    <i className={`${subject.icon} text-2xl text-primary`}></i>
-                  </div>
-                  <h3 className="font-semibold text-lg text-foreground mb-2">{subject.name}</h3>
-                  <p className="text-muted-foreground text-sm mb-3">{subject.description}</p>
-                  <div className="text-primary font-medium">{subject.tutorCount}</div>
-                </CardContent>
-              </Card>
-            ))}
+            {subjectsLoading ? (
+              // Loading skeleton
+              [...Array(8)].map((_, i) => (
+                <Card key={i} className="text-center">
+                  <CardContent className="p-6">
+                    <div className="w-16 h-16 bg-muted rounded-full mx-auto mb-4 animate-pulse"></div>
+                    <div className="h-4 bg-muted rounded mb-2 animate-pulse"></div>
+                    <div className="h-3 bg-muted rounded mb-3 animate-pulse"></div>
+                    <div className="h-3 bg-muted rounded w-24 mx-auto animate-pulse"></div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : subjects.length > 0 ? (
+              subjects.slice(0, 8).map((subject) => {
+                const icon = subjectIcons[subject.name] || "fas fa-book";
+                const tutorCount = allTutors.filter(t => 
+                  t.subjects?.some(s => s.id === subject.id)
+                ).length;
+                
+                return (
+                  <Card 
+                    key={subject.id} 
+                    className="card-hover text-center group cursor-pointer"
+                    data-testid={`card-subject-${subject.id}`}
+                    onClick={handleLogin}
+                  >
+                    <CardContent className="p-6">
+                      <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-colors">
+                        <i className={`${icon} text-2xl text-primary`}></i>
+                      </div>
+                      <h3 className="font-semibold text-lg text-foreground mb-2">{subject.name}</h3>
+                      <p className="text-muted-foreground text-sm mb-3">{subject.description || 'Expert tutoring available'}</p>
+                      <div className="text-primary font-medium">{tutorCount} {tutorCount === 1 ? 'tutor' : 'tutors'} available</div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            ) : (
+              <div className="col-span-full text-center text-muted-foreground py-8">
+                No subjects available yet
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -278,62 +250,114 @@ export default function Landing() {
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {featuredTutors.map((tutor) => (
-              <Card key={tutor.id} className="card-hover" data-testid={`card-tutor-${tutor.id}`}>
-                <CardContent className="p-6">
-                  <div className="flex items-start space-x-4 mb-4">
-                    <img 
-                      src={tutor.profileImage}
-                      alt={`${tutor.name} profile`}
-                      className="w-16 h-16 rounded-full object-cover" 
-                    />
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg text-foreground">{tutor.name}</h3>
-                      <p className="text-muted-foreground">{tutor.subject}</p>
-                      <div className="flex items-center mt-2">
-                        <div className="flex text-yellow-400">
-                          {[...Array(5)].map((_, i) => (
-                            <i key={i} className="fas fa-star"></i>
-                          ))}
-                        </div>
-                        <span className="text-sm text-muted-foreground ml-2">{tutor.rating} ({tutor.reviews})</span>
+            {tutorsLoading ? (
+              // Loading skeleton
+              [...Array(6)].map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="p-6">
+                    <div className="flex items-start space-x-4 mb-4">
+                      <div className="w-16 h-16 bg-muted rounded-full animate-pulse"></div>
+                      <div className="flex-1">
+                        <div className="h-4 bg-muted rounded mb-2 animate-pulse"></div>
+                        <div className="h-3 bg-muted rounded w-24 animate-pulse"></div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-primary">{tutor.hourlyRate}</div>
-                      <div className={`w-3 h-3 rounded-full ml-auto mt-1 ${tutor.isAvailable ? 'bg-success' : 'bg-yellow-400'}`}></div>
-                    </div>
-                  </div>
-                  
-                  <p className="text-muted-foreground text-sm mb-4">{tutor.bio}</p>
-                  
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {tutor.expertise.map((skill, index) => (
-                      <Badge key={index} variant="secondary" className="bg-primary/10 text-primary">
-                        {skill}
-                      </Badge>
-                    ))}
-                  </div>
-                  
-                  <div className="flex space-x-2">
-                    <Button 
-                      className="btn-primary flex-1" 
-                      onClick={() => handleBookSession()}
-                      data-testid={`button-book-session-${tutor.id}`}
-                    >
-                      <i className="fas fa-calendar-plus mr-2"></i>
-                      Book Session
-                    </Button>
-                    <Button variant="outline" size="icon" data-testid={`button-view-profile-${tutor.id}`}>
-                      <i className="fas fa-user"></i>
-                    </Button>
-                    <Button variant="outline" size="icon" data-testid={`button-save-favorite-${tutor.id}`}>
-                      <i className="far fa-heart"></i>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    <div className="h-12 bg-muted rounded mb-4 animate-pulse"></div>
+                    <div className="h-10 bg-muted rounded animate-pulse"></div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : featuredTutors.length > 0 ? (
+              featuredTutors.map((tutor) => {
+                const tutorName = `${tutor.user?.firstName || ''} ${tutor.user?.lastName || ''}`.trim() || 'Tutor';
+                const rating = parseFloat(tutor.totalRating || '0').toFixed(1);
+                const reviewCount = tutor.totalReviews || 0;
+                const primarySubject = tutor.subjects?.[0]?.name || 'Various Subjects';
+                const profileImage = tutor.user?.profileImageUrl || '/uploads/default-avatar.png';
+
+                return (
+                  <Card key={tutor.id} className="card-hover" data-testid={`card-tutor-${tutor.id}`}>
+                    <CardContent className="p-6">
+                      <div className="flex items-start space-x-4 mb-4">
+                        <img 
+                          src={profileImage}
+                          alt={`${tutorName} profile`}
+                          className="w-16 h-16 rounded-full object-cover" 
+                          onError={(e) => {
+                            e.currentTarget.src = 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&h=150';
+                          }}
+                        />
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-lg text-foreground">{tutorName}</h3>
+                          <p className="text-muted-foreground text-sm">{primarySubject}</p>
+                          {parseFloat(rating) > 0 && (
+                            <div className="flex items-center mt-2">
+                              <div className="flex text-yellow-400">
+                                {[...Array(5)].map((_, i) => (
+                                  <i 
+                                    key={i} 
+                                    className={`${i < Math.round(parseFloat(rating)) ? 'fas' : 'far'} fa-star text-xs`}
+                                  ></i>
+                                ))}
+                              </div>
+                              <span className="text-sm text-muted-foreground ml-2">
+                                {rating} ({reviewCount} {reviewCount === 1 ? 'review' : 'reviews'})
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-primary">${tutor.hourlyRate}/hr</div>
+                          <div className="w-3 h-3 rounded-full ml-auto mt-1 bg-success"></div>
+                        </div>
+                      </div>
+                      
+                      <p className="text-muted-foreground text-sm mb-4 line-clamp-3">
+                        {tutor.bio || 'Experienced tutor ready to help you achieve your learning goals.'}
+                      </p>
+                      
+                      {tutor.subjects && tutor.subjects.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-4">
+                          {tutor.subjects.slice(0, 3).map((subject) => (
+                            <Badge key={subject.id} variant="secondary" className="bg-primary/10 text-primary">
+                              {subject.name}
+                            </Badge>
+                          ))}
+                          {tutor.subjects.length > 3 && (
+                            <Badge variant="secondary" className="bg-primary/10 text-primary">
+                              +{tutor.subjects.length - 3} more
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex space-x-2">
+                        <Button 
+                          className="btn-primary flex-1" 
+                          onClick={handleLogin}
+                          data-testid={`button-book-session-${tutor.id}`}
+                        >
+                          <i className="fas fa-calendar-plus mr-2"></i>
+                          Book Session
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="icon" 
+                          onClick={handleLogin}
+                          data-testid={`button-view-profile-${tutor.id}`}
+                        >
+                          <i className="fas fa-user"></i>
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            ) : (
+              <div className="col-span-full text-center text-muted-foreground py-8">
+                No tutors available yet. Be the first to join as a tutor!
+              </div>
+            )}
           </div>
           
           <div className="text-center mt-12">
@@ -477,44 +501,6 @@ export default function Landing() {
                 <h3 className="text-xl font-semibold text-foreground mb-3">{item.title}</h3>
                 <p className="text-muted-foreground">{item.description}</p>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <section id="testimonials" className="py-20 bg-background">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-foreground mb-4">What Our Students Say</h2>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Join thousands of successful students who achieved their goals with Daresni
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {testimonials.map((testimonial, index) => (
-              <Card key={index} className="p-6" data-testid={`card-testimonial-${index}`}>
-                <CardContent className="p-0">
-                  <div className="flex text-yellow-400 mb-4">
-                    {[...Array(5)].map((_, i) => (
-                      <i key={i} className="fas fa-star"></i>
-                    ))}
-                  </div>
-                  <p className="text-muted-foreground mb-6">{testimonial.content}</p>
-                  <div className="flex items-center space-x-3">
-                    <img 
-                      src={testimonial.avatar}
-                      alt={`${testimonial.name} testimonial`}
-                      className="w-12 h-12 rounded-full object-cover" 
-                    />
-                    <div>
-                      <div className="font-semibold text-foreground">{testimonial.name}</div>
-                      <div className="text-sm text-muted-foreground">{testimonial.role}</div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             ))}
           </div>
         </div>
