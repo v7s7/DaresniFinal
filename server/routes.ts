@@ -760,6 +760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .update(tutorProfiles)
         .set({ 
           isVerified: true,
+          isActive: true,
           updatedAt: new Date()
         })
         .where(eq(tutorProfiles.id, tutorId))
