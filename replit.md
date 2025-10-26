@@ -4,6 +4,28 @@ This is a comprehensive online tutoring system built with React.js and Express.j
 
 # Recent Changes (October 2025)
 
+## Dummy Data Removal (October 26, 2025)
+- **Complete removal of all placeholder and mock data** from the application
+- **Landing Page**:
+  - Replaced hardcoded subjects list with real data from `/api/subjects`
+  - Replaced hardcoded featured tutors with real verified tutors from `/api/tutors`
+  - Removed testimonials section (no database support for testimonials)
+  - Replaced hardcoded platform stats (2,500+ tutors, 50,000+ students, 1M+ sessions) with real counts from `/api/stats`
+  - Removed hardcoded "4.9/5 Average Rating" and "24/7 Available" badges
+- **StudentDashboard**:
+  - Removed "Learning Progress" section with hardcoded Mathematics (78%), Science (65%), English (85%) progress bars
+- **TutorProfile**:
+  - Removed "Quick Stats" section with hardcoded response time, total students, sessions completed, member since
+  - Removed "Available today" hardcoded status indicator
+- **TutorCard**:
+  - Removed hardcoded "150+ students" and "Response < 1hr" quick stats
+- **Backend**:
+  - Added new public `/api/stats` endpoint that returns real platform statistics
+  - Optimized with SQL COUNT aggregations for performance (counts rows on database side instead of fetching all data)
+  - Returns: verified/active tutors count, students count, completed sessions count
+
+# Recent Changes (October 2025)
+
 ## Profile Settings Feature
 - Created comprehensive Profile Settings page allowing users to:
   - Edit first name and last name
