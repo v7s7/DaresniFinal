@@ -64,9 +64,13 @@ export default function TutorDashboard() {
   });
 
   const { data: tutorProfile } = useQuery<TutorProfile>({
-    queryKey: ["/api", "tutors", "profile", user?.id],
+    queryKey: ["/api/tutors/profile"],
     enabled: !!user,
     retry: false,
+    refetchInterval: (query) => {
+      // Poll every 5 seconds if profile is not verified
+      return query.state.data && !(query.state.data as TutorProfile).isVerified ? 5000 : false;
+    },
   });
 
   const { data: reviews } = useQuery<Array<Review & { student: User }>>({
@@ -86,7 +90,7 @@ export default function TutorDashboard() {
       setShowProfileModal(false);
       toast({
         title: "Success",
-        description: "Profile created successfully! Awaiting admin verification.",
+        description: "Profile created successfully! You'll see it go live as soon as an admin verifies it.",
       });
     },
     onError: (error: Error) => {
