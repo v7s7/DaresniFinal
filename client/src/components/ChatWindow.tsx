@@ -34,9 +34,12 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
 
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
-      return await apiRequest("POST", "/api/messages", {
-        receiverId: userId,
-        content,
+      return await apiRequest("/api/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          receiverId: userId,
+          content,
+        }),
       });
     },
     onSuccess: () => {
@@ -54,7 +57,9 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
 
   const markAsReadMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("PUT", `/api/messages/read/${userId}`, {});
+      return await apiRequest(`/api/messages/read/${userId}`, {
+        method: "PUT",
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages", userId] });
@@ -136,7 +141,7 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
                   </div>
                 ))}
               </div>
-            ) : messages && messages.length > 0 ? (
+            ) : Array.isArray(messages) && messages.length > 0 ? (
               <div className="space-y-3">
                 {messages.map((message: any) => {
                   const isOwnMessage = message.senderId === user?.id;

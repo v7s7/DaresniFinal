@@ -39,7 +39,7 @@ export async function apiRequest(url: string, options: RequestInit = {}) {
 }
 
 // Default query function for GET requests
-async function defaultQueryFn({ queryKey }: { queryKey: unknown[] }) {
+async function defaultQueryFn({ queryKey }: { queryKey: readonly unknown[] }) {
   const url = queryKey[0] as string;
   return apiRequest(url);
 }
