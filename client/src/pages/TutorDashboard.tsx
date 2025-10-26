@@ -394,7 +394,7 @@ export default function TutorDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {reviews && reviews.length > 0 ? (
+                {Array.isArray(reviews) && reviews.length > 0 ? (
                   <div className="space-y-4">
                     {reviews.slice(0, 3).map((review: any) => (
                       <div key={review.id} className="border-b border-border pb-4 last:border-b-0">
