@@ -4,6 +4,31 @@ This is a comprehensive online tutoring system built with React.js and Express.j
 
 # Recent Changes (October 2025)
 
+## Tutor Functionality Implementation (October 26, 2025)
+- **Session Booking System**:
+  - Implemented POST /api/sessions endpoint for creating session bookings
+  - Only students can book sessions (role validation)
+  - Validates session data with insertSessionSchema (coerces ISO string to Date for scheduledAt)
+  - Returns created session with auto-generated ID
+- **Session Management**:
+  - Implemented PUT /api/sessions/:id endpoint for updating session status
+  - Authorization checks ensure only session participants (student or tutor) can update
+  - Valid statuses: scheduled, in_progress, completed, cancelled
+- **Reviews System**:
+  - Implemented GET /api/reviews/:tutorId endpoint
+  - Returns reviews with student information for display
+  - Ordered by creation date (newest first)
+- **TutorDashboard Real Data**:
+  - Fixed queryKeys to proper format (["/api/sessions"], ["/api/reviews/:id"])
+  - Real earnings calculation: sum of price from completed sessions
+  - Unique students count: calculated from distinct studentIds across all sessions
+  - Session polling: refetches every 10 seconds to detect new bookings
+  - New booking notifications: toast alert when session count increases
+  - Statistics display: upcoming sessions, completed sessions, total earnings, average rating, total students
+- **Backend Import Fix**:
+  - Added insertSessionSchema to server/routes.ts imports
+  - Ensures proper validation of session creation requests
+
 ## Dummy Data Removal (October 26, 2025)
 - **Complete removal of all placeholder and mock data** from the application
 - **Landing Page**:
