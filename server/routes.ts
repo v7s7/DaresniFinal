@@ -48,28 +48,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Platform statistics (public - for landing page)
   app.get('/api/stats', async (req, res) => {
     try {
+      const { count } = await import('drizzle-orm');
+      
       // Count verified and active tutors
-      const tutorsResult = await db
-        .select()
+      const [tutorsCount] = await db
+        .select({ count: count() })
         .from(tutorProfiles)
         .where(and(eq(tutorProfiles.isVerified, true), eq(tutorProfiles.isActive, true)));
       
       // Count students
-      const studentsResult = await db
-        .select()
+      const [studentsCount] = await db
+        .select({ count: count() })
         .from(users)
         .where(eq(users.role, 'student'));
       
       // Count completed sessions
-      const sessionsResult = await db
-        .select()
+      const [sessionsCount] = await db
+        .select({ count: count() })
         .from(sessions_table)
         .where(eq(sessions_table.status, 'completed'));
 
       res.json({
-        tutors: tutorsResult.length,
-        students: studentsResult.length,
-        sessions: sessionsResult.length
+        tutors: tutorsCount?.count || 0,
+        students: studentsCount?.count || 0,
+        sessions: sessionsCount?.count || 0
       });
     } catch (error) {
       console.error('Error fetching platform stats:', error);

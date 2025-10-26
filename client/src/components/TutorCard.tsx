@@ -146,18 +146,6 @@ export function TutorCard({ tutor, onBook, onViewProfile, onFavorite, isFavorite
             </div>
           </div>
         )}
-
-        {/* Quick Stats */}
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-          <div className="flex items-center space-x-1">
-            <i className="fas fa-users"></i>
-            <span>150+ students</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <i className="fas fa-clock"></i>
-            <span>Response &lt; 1hr</span>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );

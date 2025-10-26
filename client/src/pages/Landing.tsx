@@ -164,30 +164,6 @@ export default function Landing() {
                 alt="Students collaborating in a modern classroom setting" 
                 className="rounded-2xl shadow-2xl w-full h-auto" 
               />
-              
-              <div className="absolute -bottom-4 -left-4 bg-white p-4 rounded-xl shadow-lg">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-success/10 rounded-full flex items-center justify-center">
-                    <i className="fas fa-star text-success"></i>
-                  </div>
-                  <div>
-                    <div className="font-bold text-foreground">4.9/5</div>
-                    <div className="text-sm text-muted-foreground">Average Rating</div>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="absolute -top-4 -right-4 bg-white p-4 rounded-xl shadow-lg">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                    <i className="fas fa-clock text-primary"></i>
-                  </div>
-                  <div>
-                    <div className="font-bold text-foreground">24/7</div>
-                    <div className="text-sm text-muted-foreground">Available</div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
