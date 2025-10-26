@@ -329,6 +329,8 @@ export const insertSessionSchema = createInsertSchema(sessions_table).pick({
   duration: true,
   notes: true,
   price: true,
+}).extend({
+  scheduledAt: z.coerce.date(), // Accept ISO strings and coerce to Date
 });
 
 export const insertReviewSchema = createInsertSchema(reviews).pick({

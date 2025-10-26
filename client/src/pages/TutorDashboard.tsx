@@ -32,6 +32,7 @@ export default function TutorDashboard() {
   const [showChat, setShowChat] = useState(false);
   const [chatUserId, setChatUserId] = useState<string | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [previousSessionCount, setPreviousSessionCount] = useState<number>(0);
 
   const form = useForm<z.infer<typeof profileSchema>>({
     resolver: zodResolver(profileSchema),
@@ -58,9 +59,10 @@ export default function TutorDashboard() {
   }, [user, isLoading, toast]);
 
   const { data: sessions, isLoading: sessionsLoading } = useQuery<Array<Session & { student: User, tutor: TutorProfile & { user: User }, subject: Subject }>>({
-    queryKey: ["/api", "sessions"],
+    queryKey: ["/api/sessions"],
     enabled: !!user,
     retry: false,
+    refetchInterval: 10000, // Poll every 10 seconds for new bookings
   });
 
   const { data: tutorProfile } = useQuery<TutorProfile>({
@@ -74,7 +76,7 @@ export default function TutorDashboard() {
   });
 
   const { data: reviews } = useQuery<Array<Review & { student: User }>>({
-    queryKey: ["/api", "reviews", tutorProfile?.id],
+    queryKey: ["/api/reviews", tutorProfile?.id],
     enabled: !!tutorProfile?.id,
   });
 
@@ -146,6 +148,25 @@ export default function TutorDashboard() {
   );
 
   const averageRating = tutorProfile?.totalRating || '0';
+
+  // Calculate unique students
+  const uniqueStudents = Array.isArray(sessions) 
+    ? new Set(sessions.map((session: any) => session.studentId)).size 
+    : 0;
+
+  // Notify tutor of new bookings
+  useEffect(() => {
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      if (previousSessionCount > 0 && sessions.length > previousSessionCount) {
+        const newSessionsCount = sessions.length - previousSessionCount;
+        toast({
+          title: "New Booking!",
+          description: `You have ${newSessionsCount} new session booking${newSessionsCount > 1 ? 's' : ''}!`,
+        });
+      }
+      setPreviousSessionCount(sessions.length);
+    }
+  }, [sessions, previousSessionCount, toast]);
 
   const handleStartChat = (userId: string) => {
     setChatUserId(userId);
@@ -458,6 +479,10 @@ export default function TutorDashboard() {
                     <div className="flex justify-between">
                       <span>Hourly Rate:</span>
                       <span className="font-medium">${tutorProfile.hourlyRate}/hr</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total Students:</span>
+                      <span className="font-medium" data-testid="text-total-students">{uniqueStudents}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Total Reviews:</span>

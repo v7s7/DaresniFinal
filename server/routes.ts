@@ -19,7 +19,8 @@ import {
   chooseRoleSchema,
   updateTutorProfileSchema,
   insertNotificationSchema,
-  insertFavoriteSchema
+  insertFavoriteSchema,
+  insertSessionSchema
 } from "@shared/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { sendToAdmins, createTutorRegistrationEmail } from "./email";
@@ -1042,12 +1043,138 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create a new session (booking)
+  app.post('/api/sessions', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      
+      // Validate that only students can create sessions
+      if (user.role !== 'student') {
+        return res.status(403).json({ 
+          message: 'Only students can book sessions', 
+          fieldErrors: {} 
+        });
+      }
+
+      const sessionData = insertSessionSchema.parse({
+        ...req.body,
+        studentId: user.id,
+      });
+
+      const [newSession] = await db
+        .insert(sessions_table)
+        .values(sessionData)
+        .returning();
+
+      res.json(newSession);
+    } catch (error) {
+      console.error('Error creating session:', error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: 'Validation failed',
+          fieldErrors: error.flatten().fieldErrors,
+        });
+      }
+      res.status(500).json({ 
+        message: 'Failed to create session', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
+  // Update session status
+  app.put('/api/sessions/:id', requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      const sessionId = req.params.id;
+      const { status } = req.body;
+
+      // Validate status
+      const validStatuses = ['scheduled', 'in_progress', 'completed', 'cancelled'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ 
+          message: 'Invalid session status', 
+          fieldErrors: {} 
+        });
+      }
+
+      // Get the session to verify ownership
+      const [session] = await db
+        .select()
+        .from(sessions_table)
+        .where(eq(sessions_table.id, sessionId))
+        .limit(1);
+
+      if (!session) {
+        return res.status(404).json({ 
+          message: 'Session not found', 
+          fieldErrors: {} 
+        });
+      }
+
+      // Check authorization
+      if (user.role === 'student' && session.studentId !== user.id) {
+        return res.status(403).json({ 
+          message: 'Not authorized to update this session', 
+          fieldErrors: {} 
+        });
+      }
+
+      if (user.role === 'tutor') {
+        // Find tutor profile
+        const [tutorProfile] = await db
+          .select()
+          .from(tutorProfiles)
+          .where(eq(tutorProfiles.userId, user.id))
+          .limit(1);
+
+        if (!tutorProfile || session.tutorId !== tutorProfile.id) {
+          return res.status(403).json({ 
+            message: 'Not authorized to update this session', 
+            fieldErrors: {} 
+          });
+        }
+      }
+
+      // Update the session
+      const [updatedSession] = await db
+        .update(sessions_table)
+        .set({ status, updatedAt: new Date() })
+        .where(eq(sessions_table.id, sessionId))
+        .returning();
+
+      res.json(updatedSession);
+    } catch (error) {
+      console.error('Error updating session:', error);
+      res.status(500).json({ 
+        message: 'Failed to update session', 
+        fieldErrors: {} 
+      });
+    }
+  });
+
   // === REVIEWS ===
   
   app.get('/api/reviews/:tutorId', async (req, res) => {
     try {
-      // For now, return empty array - reviews will be implemented later
-      res.json([]);
+      const { tutorId } = req.params;
+
+      const reviewsData = await db
+        .select({
+          review: reviews,
+          student: users,
+        })
+        .from(reviews)
+        .leftJoin(users, eq(reviews.studentId, users.id))
+        .where(eq(reviews.tutorId, tutorId))
+        .orderBy(desc(reviews.createdAt));
+
+      const formattedReviews = reviewsData.map(r => ({
+        ...r.review,
+        student: r.student,
+      }));
+
+      res.json(formattedReviews);
     } catch (error) {
       console.error('Error fetching reviews:', error);
       res.status(500).json({ 
