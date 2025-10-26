@@ -117,7 +117,7 @@ export default function Landing() {
             <div className="flex items-center space-x-4">
               <div className="text-white text-2xl font-bold">
                 <i className="fas fa-graduation-cap mr-2"></i>
-                TutorConnect
+                Daresni
               </div>
             </div>
             
@@ -446,7 +446,7 @@ export default function Landing() {
       <section id="how-it-works" className="py-20 bg-secondary">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-foreground mb-4">How TutorConnect Works</h2>
+            <h2 className="text-4xl font-bold text-foreground mb-4">How Daresni Works</h2>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
               Get started with personalized tutoring in just three simple steps
             </p>
@@ -488,7 +488,7 @@ export default function Landing() {
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-foreground mb-4">What Our Students Say</h2>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Join thousands of successful students who achieved their goals with TutorConnect
+              Join thousands of successful students who achieved their goals with Daresni
             </p>
           </div>
           
@@ -525,7 +525,7 @@ export default function Landing() {
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-4xl font-bold text-white mb-4">Ready to Start Your Learning Journey?</h2>
           <p className="text-xl text-white/90 mb-8 max-w-2xl mx-auto">
-            Join thousands of students already learning with expert tutors on TutorConnect
+            Join thousands of students already learning with expert tutors on Daresni
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -561,7 +561,7 @@ export default function Landing() {
             <div>
               <div className="text-2xl font-bold mb-4 flex items-center">
                 <i className="fas fa-graduation-cap mr-2"></i>
-                TutorConnect
+                Daresni
               </div>
               <p className="text-gray-300 mb-4">
                 Connecting students with expert tutors worldwide for personalized learning experiences.
@@ -610,7 +610,7 @@ export default function Landing() {
           </div>
           
           <div className="border-t border-gray-600 mt-8 pt-8 text-center text-gray-300">
-            <p>&copy; 2024 TutorConnect. All rights reserved.</p>
+            <p>&copy; 2024 Daresni. All rights reserved.</p>
           </div>
         </div>
       </footer>

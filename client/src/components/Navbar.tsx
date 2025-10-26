@@ -54,7 +54,7 @@ export default function Navbar() {
           {/* Logo */}
           <Link href="/" className="flex items-center space-x-2 text-white hover:text-gray-200">
             <i className="fas fa-graduation-cap text-2xl"></i>
-            <span className="text-xl font-bold">TutorConnect</span>
+            <span className="text-xl font-bold">Daresni</span>
           </Link>
 
           {/* Desktop Navigation */}

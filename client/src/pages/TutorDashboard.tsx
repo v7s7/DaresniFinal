@@ -170,7 +170,7 @@ export default function TutorDashboard() {
               <CardHeader>
                 <CardTitle>Create Your Tutor Profile</CardTitle>
                 <p className="text-muted-foreground">
-                  Complete your profile to start tutoring on TutorConnect
+                  Complete your profile to start tutoring on Daresni
                 </p>
               </CardHeader>
               <CardContent>
