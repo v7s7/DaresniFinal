@@ -4,3 +4,10 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+# never commit secrets or build output
+.env
+*.env
+*.serviceaccount.json
+uploads/
+node_modules/
+dist/
