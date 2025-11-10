@@ -1,88 +1,206 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { TutorProfile, User, Subject } from "@shared/schema";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type {
+  TutorProfile as TutorProfileFS,
+  User as UserFS,
+  Subject as SubjectFS,
+} from "@shared/types";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { TutorCard } from "@/components/TutorCard";
 import { BookingModal } from "@/components/BookingModal";
-import { TutorMatchWizard, type TutorFilters } from "@/components/TutorMatchWizard";
-import { apiRequest } from "@/lib/queryClient";
+import {
+  TutorMatchWizard,
+  type TutorFilters,
+} from "@/components/TutorMatchWizard";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+
+/* ------------------------------------------------------------------ */
+/* Local favorites (per user) stored in localStorage                   */
+/* ------------------------------------------------------------------ */
+function useLocalFavorites(userId?: string) {
+  const key = userId ? `favorites:${userId}` : undefined;
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!key) return;
+    try {
+      const raw = localStorage.getItem(key);
+      setFavorites(raw ? JSON.parse(raw) : []);
+    } catch {
+      setFavorites([]);
+    }
+  }, [key]);
+
+  const save = (next: string[]) => {
+    setFavorites(next);
+    if (key) localStorage.setItem(key, JSON.stringify(next));
+  };
+
+  const toggle = (id: string) =>
+    save(favorites.includes(id) ? favorites.filter((x) => x !== id) : [...favorites, id]);
+
+  const isFav = (id: string) => favorites.includes(id);
+
+  return { favorites, toggle, isFav };
+}
+
+/* ------------------------------------------------------------------ */
+/* View Model for cards                                               */
+/* ------------------------------------------------------------------ */
+type TutorVM = TutorProfileFS & {
+  user: UserFS;
+  // NOTE: API may send strings OR full subject objects – we’ll handle that at runtime.
+  subjects: any[];
+  totalRating?: number | string;
+  totalReviews?: number;
+  isActive?: boolean;
+  isVerified?: boolean;
+};
 
 export default function TutorBrowse() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSubject, setSelectedSubject] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("rating");
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [selectedTutor, setSelectedTutor] = useState<any>(null);
+  const [selectedTutor, setSelectedTutor] = useState<TutorVM | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardFilters, setWizardFilters] = useState<TutorFilters | null>(null);
+
   const { user } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const { favorites, toggle, isFav } = useLocalFavorites(user?.id);
 
-  const { data: tutors, isLoading: tutorsLoading } = useQuery<Array<TutorProfile & { user: User, subjects: Subject[] }>>({
+  /* --------------------------- Load tutors from API --------------------------- */
+  const {
+    data: tutors = [],
+    isLoading: tutorsLoading,
+  } = useQuery<TutorVM[]>({
     queryKey: ["/api/tutors"],
   });
 
-  const { data: subjects } = useQuery<Subject[]>({
-    queryKey: ["/api/subjects"],
-  });
+  /* --------------------- Derive subjects from tutors -------------------------- */
+  const subjectsForFilter: SubjectFS[] = useMemo(() => {
+    const map = new Map<string, SubjectFS>();
 
-  const { data: favorites = [] } = useQuery<string[]>({
-    queryKey: ["/api/favorites"],
-    enabled: !!user,
-  });
+    tutors.forEach((tutor) => {
+      const subjectArr = (tutor.subjects ?? []) as any[];
 
-  const addFavoriteMutation = useMutation({
-    mutationFn: async (tutorId: string) => {
-      return await apiRequest("/api/favorites", {
-        method: "POST",
-        body: JSON.stringify({ tutorId }),
-        headers: { "Content-Type": "application/json" },
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
-      toast({
-        title: "Added to favorites!",
-        description: "Tutor has been added to your favorites.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to add tutor to favorites",
-        variant: "destructive",
-      });
-    },
-  });
+      subjectArr.forEach((raw) => {
+        // Skip plain string subjects – we only want full objects for the filter list
+        const s: SubjectFS | null =
+          typeof raw === "string" ? null : (raw as SubjectFS);
 
-  const removeFavoriteMutation = useMutation({
-    mutationFn: async (tutorId: string) => {
-      return await apiRequest(`/api/favorites/${tutorId}`, {
-        method: "DELETE",
+        if (!s?.id) return;
+        if (!map.has(s.id)) map.set(s.id, s);
       });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/favorites"] });
-      toast({
-        title: "Removed from favorites",
-        description: "Tutor has been removed from your favorites.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to remove tutor from favorites",
-        variant: "destructive",
-      });
-    },
-  });
+    });
+
+    return Array.from(map.values());
+  }, [tutors]);
+
+  /* ------------------------------- Filters ------------------------------------ */
+  const filteredTutors = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    const base = tutors.filter((tutor) => {
+      const subjectArr = (tutor.subjects ?? []) as any[];
+
+      const matchesSearch =
+        !term ||
+        tutor.user.firstName?.toLowerCase().includes(term) ||
+        tutor.user.lastName?.toLowerCase().includes(term) ||
+        subjectArr.some((raw) => {
+          if (typeof raw === "string") {
+            return raw.toLowerCase().includes(term);
+          }
+          const s = raw as SubjectFS;
+          return (s.name ?? "").toLowerCase().includes(term);
+        });
+
+      const matchesSubject =
+        selectedSubject === "all" ||
+        subjectArr.some((raw) => {
+          if (typeof raw === "string") {
+            // if the API ever sends IDs as strings
+            return raw === selectedSubject;
+          }
+          const s = raw as SubjectFS;
+          return s.id === selectedSubject;
+        });
+
+      let matchesWizard = true;
+      if (wizardFilters) {
+        if (wizardFilters.subjectId) {
+          matchesWizard =
+            matchesWizard &&
+            subjectArr.some((raw) => {
+              if (typeof raw === "string") {
+                return raw === wizardFilters.subjectId;
+              }
+              const s = raw as SubjectFS;
+              return s.id === wizardFilters.subjectId;
+            });
+        }
+        if (wizardFilters.maxRate) {
+          matchesWizard =
+            matchesWizard &&
+            (tutor.hourlyRate || 0) * 100 <= wizardFilters.maxRate;
+        }
+        if (wizardFilters.minRating) {
+          const r = parseFloat(String(tutor.totalRating ?? 0));
+          matchesWizard = matchesWizard && r >= wizardFilters.minRating;
+        }
+      }
+
+      return matchesSearch && matchesSubject && matchesWizard;
+    });
+
+    const sorted = [...base].sort((a, b) => {
+      switch (sortBy) {
+        case "rating":
+          return (
+            parseFloat(String(b.totalRating ?? 0)) -
+            parseFloat(String(a.totalRating ?? 0))
+          );
+        case "price-low":
+          return (a.hourlyRate ?? 0) - (b.hourlyRate ?? 0);
+        case "price-high":
+          return (b.hourlyRate ?? 0) - (a.hourlyRate ?? 0);
+        case "reviews":
+          return (b.totalReviews ?? 0) - (a.totalReviews ?? 0);
+        default:
+          return 0;
+      }
+    });
+
+    return sorted;
+  }, [tutors, searchTerm, selectedSubject, sortBy, wizardFilters]);
+
+  /* --------------------------- Handlers --------------------------------------- */
+  const handleBookSession = (tutor: TutorVM) => {
+    setSelectedTutor(tutor);
+    setShowBookingModal(true);
+  };
+
+  const handleBookingConfirm = () => {
+    setShowBookingModal(false);
+    toast({
+      title: "Session booked!",
+      description: "You’ll find it in My Sessions.",
+    });
+  };
 
   const handleFavoriteToggle = (tutorId: string) => {
     if (!user) {
@@ -93,66 +211,7 @@ export default function TutorBrowse() {
       });
       return;
     }
-
-    if (favorites.includes(tutorId)) {
-      removeFavoriteMutation.mutate(tutorId);
-    } else {
-      addFavoriteMutation.mutate(tutorId);
-    }
-  };
-
-  const filteredTutors = Array.isArray(tutors) ? tutors.filter((tutor: any) => {
-    const matchesSearch = 
-      tutor.user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tutor.user.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tutor.subjects.some((s: any) => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesSubject = selectedSubject === "all" || 
-      tutor.subjects.some((s: any) => s.id === selectedSubject);
-    
-    // Apply wizard filters if they exist
-    let matchesWizard = true;
-    if (wizardFilters) {
-      // Filter by subject from wizard
-      if (wizardFilters.subjectId) {
-        matchesWizard = matchesWizard && tutor.subjects.some((s: any) => s.id === wizardFilters.subjectId);
-      }
-      
-      // Filter by max rate (hourlyRate is in cents)
-      if (wizardFilters.maxRate) {
-        matchesWizard = matchesWizard && (tutor.hourlyRate || 0) <= wizardFilters.maxRate;
-      }
-      
-      // Filter by minimum rating
-      if (wizardFilters.minRating) {
-        matchesWizard = matchesWizard && parseFloat(tutor.totalRating || '0') >= wizardFilters.minRating;
-      }
-    }
-    
-    return matchesSearch && matchesSubject && matchesWizard;
-  }).sort((a: any, b: any) => {
-    switch (sortBy) {
-      case "rating":
-        return parseFloat(b.totalRating || '0') - parseFloat(a.totalRating || '0');
-      case "price-low":
-        return parseFloat(a.hourlyRate || '0') - parseFloat(b.hourlyRate || '0');
-      case "price-high":
-        return parseFloat(b.hourlyRate || '0') - parseFloat(a.hourlyRate || '0');
-      case "reviews":
-        return (b.totalReviews || 0) - (a.totalReviews || 0);
-      default:
-        return 0;
-    }
-  }) : [];
-
-  const handleBookSession = (tutor: any) => {
-    setSelectedTutor(tutor);
-    setShowBookingModal(true);
-  };
-
-  const handleBookingConfirm = () => {
-    setShowBookingModal(false);
-    // Booking logic would be handled in the modal
+    toggle(tutorId);
   };
 
   const handleWizardComplete = (filters: TutorFilters) => {
@@ -160,7 +219,7 @@ export default function TutorBrowse() {
     setShowWizard(false);
     toast({
       title: "Filters applied!",
-      description: `Showing tutors that match your preferences`,
+      description: "Showing tutors that match your preferences.",
     });
   };
 
@@ -168,10 +227,11 @@ export default function TutorBrowse() {
     setWizardFilters(null);
     toast({
       title: "Smart filters cleared",
-      description: "Showing all tutors",
+      description: "Showing all tutors.",
     });
   };
 
+  /* ------------------------------ UI ----------------------------------------- */
   return (
     <div className="min-h-screen bg-background pt-16">
       <div className="container mx-auto px-4 py-8">
@@ -179,20 +239,24 @@ export default function TutorBrowse() {
         <div className="mb-8">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-foreground" data-testid="text-browse-title">
+              <h1
+                className="text-3xl font-bold text-foreground"
+                data-testid="text-browse-title"
+              >
                 Find Your Perfect Tutor
               </h1>
               <p className="text-muted-foreground mt-2">
-                Browse through our verified tutors and book your ideal learning session
+                Browse through our verified tutors and book your ideal learning
+                session
               </p>
             </div>
-            <Button 
+            <Button
               size="lg"
               className="bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70"
               onClick={() => setShowWizard(true)}
               data-testid="button-find-best-tutor"
             >
-              <i className="fas fa-magic mr-2"></i>
+              <i className="fas fa-magic mr-2" />
               Find Best Tutor
             </Button>
           </div>
@@ -211,17 +275,20 @@ export default function TutorBrowse() {
                 />
               </div>
               <div>
-                <Select value={selectedSubject} onValueChange={setSelectedSubject}>
+                <Select
+                  value={selectedSubject}
+                  onValueChange={setSelectedSubject}
+                >
                   <SelectTrigger data-testid="select-subject">
                     <SelectValue placeholder="All Subjects" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Subjects</SelectItem>
-                    {Array.isArray(subjects) ? subjects.map((subject: any) => (
+                    {subjectsForFilter.map((subject) => (
                       <SelectItem key={subject.id} value={subject.id}>
                         {subject.name}
                       </SelectItem>
-                    )) : null}
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -232,15 +299,19 @@ export default function TutorBrowse() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="rating">Highest Rated</SelectItem>
-                    <SelectItem value="price-low">Price: Low to High</SelectItem>
-                    <SelectItem value="price-high">Price: High to Low</SelectItem>
+                    <SelectItem value="price-low">
+                      Price: Low to High
+                    </SelectItem>
+                    <SelectItem value="price-high">
+                      Price: High to Low
+                    </SelectItem>
                     <SelectItem value="reviews">Most Reviews</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="w-full"
                   onClick={() => {
                     setSearchTerm("");
@@ -263,39 +334,41 @@ export default function TutorBrowse() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="bg-primary text-primary-foreground rounded-full p-2">
-                    <i className="fas fa-magic"></i>
+                    <i className="fas fa-magic" />
                   </div>
                   <div>
                     <div className="font-semibold">Smart Filters Active</div>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {wizardFilters.subjectName && (
                         <Badge variant="secondary">
-                          <i className="fas fa-book mr-1"></i>
+                          <i className="fas fa-book mr-1" />
                           {wizardFilters.subjectName}
                         </Badge>
                       )}
-                      {wizardFilters.maxRate && wizardFilters.maxRate < 999999 && (
-                        <Badge variant="secondary">
-                          <i className="fas fa-dollar-sign mr-1"></i>
-                          Under ${wizardFilters.maxRate / 100}/hr
-                        </Badge>
-                      )}
-                      {wizardFilters.minRating && wizardFilters.minRating > 0 && (
-                        <Badge variant="secondary">
-                          <i className="fas fa-star mr-1"></i>
-                          {wizardFilters.minRating}+ rating
-                        </Badge>
-                      )}
+                      {wizardFilters.maxRate &&
+                        wizardFilters.maxRate < 999999 && (
+                          <Badge variant="secondary">
+                            <i className="fas fa-dollar-sign mr-1" />
+                            Under ${wizardFilters.maxRate / 100}/hr
+                          </Badge>
+                        )}
+                      {wizardFilters.minRating &&
+                        wizardFilters.minRating > 0 && (
+                          <Badge variant="secondary">
+                            <i className="fas fa-star mr-1" />
+                            {wizardFilters.minRating}+ rating
+                          </Badge>
+                        )}
                     </div>
                   </div>
                 </div>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   size="sm"
                   onClick={clearWizardFilters}
                   data-testid="button-clear-wizard-filters"
                 >
-                  <i className="fas fa-times mr-2"></i>
+                  <i className="fas fa-times mr-2" />
                   Clear
                 </Button>
               </div>
@@ -303,7 +376,7 @@ export default function TutorBrowse() {
           </Card>
         )}
 
-        {/* Results */}
+        {/* Results header */}
         <div className="mb-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold">
@@ -311,7 +384,7 @@ export default function TutorBrowse() {
             </h2>
             <div className="flex items-center space-x-2">
               <Badge variant="outline" className="bg-primary/10 text-primary">
-                <i className="fas fa-check-circle mr-1"></i>
+                <i className="fas fa-check-circle mr-1" />
                 All verified
               </Badge>
             </div>
@@ -326,14 +399,14 @@ export default function TutorBrowse() {
                 <CardContent className="p-6">
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-16 h-16 bg-muted rounded-full"></div>
+                      <div className="w-16 h-16 bg-muted rounded-full" />
                       <div className="space-y-2 flex-1">
-                        <div className="h-4 bg-muted rounded w-3/4"></div>
-                        <div className="h-3 bg-muted rounded w-1/2"></div>
+                        <div className="h-4 bg-muted rounded w-3/4" />
+                        <div className="h-3 bg-muted rounded w-1/2" />
                       </div>
                     </div>
-                    <div className="h-3 bg-muted rounded"></div>
-                    <div className="h-3 bg-muted rounded w-2/3"></div>
+                    <div className="h-3 bg-muted rounded" />
+                    <div className="h-3 bg-muted rounded w-2/3" />
                   </div>
                 </CardContent>
               </Card>
@@ -341,14 +414,14 @@ export default function TutorBrowse() {
           </div>
         ) : filteredTutors.length > 0 ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredTutors.map((tutor: any) => (
+            {filteredTutors.map((tutor) => (
               <TutorCard
                 key={tutor.id}
                 tutor={tutor}
                 onBook={() => handleBookSession(tutor)}
-                onViewProfile={() => window.location.href = `/tutor/${tutor.id}`}
+                onViewProfile={() => (window.location.href = `/tutor/${tutor.id}`)}
                 onFavorite={() => handleFavoriteToggle(tutor.id)}
-                isFavorite={favorites.includes(tutor.id)}
+                isFavorite={isFav(tutor.id)}
               />
             ))}
           </div>
@@ -356,12 +429,12 @@ export default function TutorBrowse() {
           <Card className="text-center py-12">
             <CardContent>
               <div className="space-y-4">
-                <i className="fas fa-search text-4xl text-muted-foreground"></i>
+                <i className="fas fa-search text-4xl text-muted-foreground" />
                 <h3 className="text-xl font-semibold">No tutors found</h3>
                 <p className="text-muted-foreground">
                   Try adjusting your search criteria or browse all tutors
                 </p>
-                <Button 
+                <Button
                   onClick={() => {
                     setSearchTerm("");
                     setSelectedSubject("all");
@@ -375,7 +448,7 @@ export default function TutorBrowse() {
           </Card>
         )}
 
-        {/* Load More (if needed) */}
+        {/* Load More (placeholder) */}
         {filteredTutors.length > 12 && (
           <div className="text-center mt-8">
             <Button variant="outline" data-testid="button-load-more">

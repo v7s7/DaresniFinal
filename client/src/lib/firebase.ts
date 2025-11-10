@@ -11,7 +11,7 @@ const firebaseConfig = {
   storageBucket: "daresni-c9b13.firebasestorage.app",
   messagingSenderId: "731954028532",
   appId: "1:731954028532:web:c9d818aebf6550e8e2e3a1",
-  measurementId: "G-V0DL2SLXQF" // optional; fine to keep
+  measurementId: "G-V0DL2SLXQF" // optional
 };
 
 export const app = initializeApp(firebaseConfig);
@@ -19,6 +19,6 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
-// (Repo expects a Google provider export too)
+// Google provider
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
