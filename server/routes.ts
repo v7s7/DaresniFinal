@@ -1,5 +1,5 @@
 // server/routes.ts
-import type { Express } from "express";
+import express, { type Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -18,6 +18,29 @@ const updateTutorProfileSchema = z.object({
   phone: z.string().min(5).optional(),
   hourlyRate: z.number().nonnegative().optional(),
   subjects: z.array(z.string()).optional(),
+
+  // extra profile fields
+  education: z.string().min(1).optional(),
+  experience: z.string().min(1).optional(),
+  certifications: z.array(z.string()).optional(),
+
+  // weekly availability (mon..sun) -> { isAvailable, startTime, endTime }
+  availability: z
+    .record(
+      z.string(), // e.g., "monday"
+      z.object({
+        isAvailable: z.boolean(),
+        startTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM 24h format")
+          .optional(),
+        endTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM 24h format")
+          .optional(),
+      })
+    )
+    .optional(),
 });
 
 const insertFavoriteSchema = z.object({
@@ -26,7 +49,7 @@ const insertFavoriteSchema = z.object({
 });
 
 const insertSessionSchema = z.object({
-  tutorId: z.string(),        // tutor_profiles.id
+  tutorId: z.string(), // tutor_profiles.id
   subjectId: z.string(),
   studentId: z.string(),
   scheduledAt: z.union([z.string(), z.date()]),
@@ -69,7 +92,6 @@ async function batchLoadMap<T = any>(collection: string, ids: string[]): Promise
   const map = new Map<string, T & { id: string }>();
   if (unique.length === 0) return map;
 
-  // Prefer getAll for one round trip; fallback to individual gets if not available
   const refs = unique.map((id) => fdb!.collection(collection).doc(id));
   // @ts-ignore - getAll exists on Admin Firestore
   const snaps: FirebaseFirestore.DocumentSnapshot[] = await (fdb as any).getAll(...refs);
@@ -81,9 +103,9 @@ async function batchLoadMap<T = any>(collection: string, ids: string[]): Promise
 
 function coerceMillis(v: any): number {
   if (!v) return 0;
-  if (typeof v.toDate === "function") return v.toDate().getTime(); // Firestore Timestamp
-  if (typeof v === "object" && typeof v._seconds === "number") return v._seconds * 1000; // serialized TS
-  return new Date(v).getTime();
+  if (typeof (v as any).toDate === "function") return (v as any).toDate().getTime(); // Firestore Timestamp
+  if (typeof v === "object" && typeof (v as any)._seconds === "number") return (v as any)._seconds * 1000; // serialized TS
+  return new Date(v as any).getTime();
 }
 
 async function upsertUserFromReqUser(user: AuthUser) {
@@ -99,6 +121,57 @@ async function upsertUserFromReqUser(user: AuthUser) {
     },
     { merge: true }
   );
+}
+
+/* =======================
+   Availability utilities
+   ======================= */
+
+const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+type DayKey = (typeof DAY_KEYS)[number];
+
+function startOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function endOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+function toDayKey(date: Date): DayKey {
+  return DAY_KEYS[date.getDay()];
+}
+function parseHHMM(hhmm: string | undefined, fallback: string): { h: number; m: number } {
+  const v = hhmm || fallback;
+  const [h, m] = v.split(":").map((n) => Number(n));
+  return { h: Math.max(0, Math.min(23, h || 0)), m: Math.max(0, Math.min(59, m || 0)) };
+}
+function* generateSlots(startHHmm: string, endHHmm: string, stepMinutes = 60) {
+  // generate slot labels (HH:mm) in [start,end] with step
+  const [sh, sm] = startHHmm.split(":").map(Number);
+  const [eh, em] = endHHmm.split(":").map(Number);
+  const base = new Date();
+  base.setHours(sh, sm, 0, 0);
+  const end = new Date();
+  end.setHours(eh, em, 0, 0);
+
+  const cur = new Date(base);
+  while (cur < end) {
+    const next = new Date(cur.getTime() + stepMinutes * 60_000);
+    if (next <= end) {
+      const hh = cur.getHours().toString().padStart(2, "0");
+      const mm = cur.getMinutes().toString().padStart(2, "0");
+      const ehh = next.getHours().toString().padStart(2, "0");
+      const emm = next.getMinutes().toString().padStart(2, "0");
+      yield { start: `${hh}:${mm}`, end: `${ehh}:${emm}` };
+    }
+    cur.setTime(next.getTime());
+  }
+}
+function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
+  return aStart < bEnd && bStart < aEnd;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -123,7 +196,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const studentsAgg = await fdb!.collection("users").where("role", "==", "student").count().get();
 
-      const completedAgg = await fdb!.collection("tutoring_sessions").where("status", "==", "completed").count().get();
+      const completedAgg = await fdb!
+        .collection("tutoring_sessions")
+        .where("status", "==", "completed")
+        .count()
+        .get();
 
       res.json({
         tutors: tutorsAgg.data().count || 0,
@@ -137,11 +214,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const uploadsDir = path.join(process.cwd(), "uploads");
-  app.use("/uploads", (req, res) => {
-    const filePath = path.join(uploadsDir, req.path);
-    if (fs.existsSync(filePath)) res.sendFile(filePath);
-    else res.status(404).send("File not found");
-  });
+  app.use(
+    "/uploads",
+    express.static(uploadsDir, {
+      fallthrough: false,
+      index: false,
+      redirect: false,
+    })
+  );
 
   // === AUTH ===
   app.get("/api/me", requireUser, async (req, res) => {
@@ -180,7 +260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         profileImageUrl: z.string().optional().or(z.literal("")).nullable(),
       });
       const updateData = updateSchema.parse(req.body);
-      if (updateData.profileImageUrl === "") delete updateData.profileImageUrl;
+      if (updateData.profileImageUrl === "") delete (updateData as any).profileImageUrl;
 
       const ref = fdb!.collection("users").doc(user.id);
       await ref.set({ ...updateData, updatedAt: now() }, { merge: true });
@@ -234,7 +314,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ url: fileUrl, message: "File uploaded successfully" });
     } catch (error) {
       console.error("Upload error:", error);
-      res.status(500).json({ message: "Failed to upload file", error: error instanceof Error ? error.message : "Unknown" });
+      res
+        .status(500)
+        .json({ message: "Failed to upload file", error: error instanceof Error ? error.message : "Unknown" });
     }
   });
 
@@ -242,7 +324,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { role } = chooseRoleSchema.parse(req.body);
       const user = req.user!;
-      if (role === "admin") return res.status(403).json({ message: "Admin role cannot be self-assigned", fieldErrors: {} });
+      if (role === "admin")
+        return res.status(403).json({ message: "Admin role cannot be self-assigned", fieldErrors: {} });
 
       const userRef = fdb!.collection("users").doc(user.id);
       await userRef.set({ role, updatedAt: now() }, { merge: true });
@@ -288,7 +371,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       if (!fdb) return res.status(500).json({ message: "Firestore not initialized" });
       const basic = [
-        { id: "math", name: "Mathematics", description: "Math tutoring from basic arithmetic to advanced calculus", category: "STEM" },
+        {
+          id: "math",
+          name: "Mathematics",
+          description: "Math tutoring from basic arithmetic to advanced calculus",
+          category: "STEM",
+        },
         { id: "science", name: "Science", description: "Biology, chemistry, and physics", category: "STEM" },
         { id: "english", name: "English", description: "Language arts, writing, and literature", category: "Language Arts" },
         { id: "history", name: "History", description: "World history, social studies", category: "Social Studies" },
@@ -326,7 +414,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let subjects: any[] = [];
       if (subjectIds.length) {
         const map = await batchLoadMap<any>("subjects", subjectIds);
-        subjects = subjectIds.map((sid) => (map.get(sid) ? { id: sid, ...map.get(sid)! } : null)).filter(Boolean) as any[];
+        subjects = subjectIds
+          .map((sid) => (map.get(sid) ? { id: sid, ...map.get(sid)! } : null))
+          .filter(Boolean) as any[];
       }
 
       res.json({ ...profile, user: joinedUser, subjects });
@@ -370,7 +460,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (subjectIds.length > 0) {
           const batchIns = fdb!.batch();
           subjectIds.forEach((sid: string) => {
-            batchIns.set(fdb!.collection("tutor_subjects").doc(`${profileId}_${sid}`), { tutorId: profileId, subjectId: sid });
+            batchIns.set(fdb!.collection("tutor_subjects").doc(`${profileId}_${sid}`), {
+              tutorId: profileId,
+              subjectId: sid,
+            });
           });
           await batchIns.commit();
         }
@@ -489,6 +582,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  /* =========================
+     Public tutor availability
+     ========================= */
+
+  // GET /api/tutors/:id/availability?date=YYYY-MM-DD&step=60
+  // :id is tutor_profiles.id
+  app.get("/api/tutors/:id/availability", async (req, res) => {
+    try {
+      const tutorProfileId = req.params.id;
+      const dateParam = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      const step = Math.max(15, Math.min(180, Number(req.query.step ?? 60))); // 15–180 minutes
+
+      const day = new Date(`${dateParam}T00:00:00`);
+      if (isNaN(day.getTime())) return res.status(400).json({ error: "Invalid date" });
+
+      const profile = await getDoc<any>("tutor_profiles", tutorProfileId);
+      if (!profile) return res.status(404).json({ error: "Tutor not found" });
+
+      const key = toDayKey(day);
+      const dayAvail = profile.availability?.[key];
+      if (!dayAvail || !dayAvail.isAvailable) return res.json({ slots: [] });
+
+      const { h: sh, m: sm } = parseHHMM(dayAvail.startTime, "09:00");
+      const { h: eh, m: em } = parseHHMM(dayAvail.endTime, "17:00");
+
+      // fetch booked sessions for that day
+      const sDay = startOfDay(day);
+      const eDay = endOfDay(day);
+      const bookedSnap = await fdb!
+        .collection("tutoring_sessions")
+        .where("tutorId", "==", tutorProfileId)
+        .where("scheduledAt", ">=", sDay)
+        .where("scheduledAt", "<=", eDay)
+        .get();
+
+      const booked = bookedSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((s) => (s.status || "scheduled") !== "cancelled");
+
+      const slots: Array<{ start: string; end: string; available: boolean; at: string }> = [];
+      for (const s of generateSlots(
+        `${sh.toString().padStart(2, "0")}:${sm.toString().padStart(2, "0")}`,
+        `${eh.toString().padStart(2, "0")}:${em.toString().padStart(2, "0")}`,
+        step
+      )) {
+        const slotStart = new Date(day);
+        const [ssh, ssm] = s.start.split(":").map(Number);
+        slotStart.setHours(ssh, ssm, 0, 0);
+        const slotEnd = new Date(slotStart.getTime() + step * 60_000);
+
+        // past slots not available
+        let available = slotStart > new Date();
+
+        // conflict with existing sessions
+        for (const b of booked) {
+          const bStart = new Date(coerceMillis(b.scheduledAt));
+          const dur = Number(b.duration ?? step);
+          const bEnd = new Date(bStart.getTime() + dur * 60_000);
+          if (overlaps(slotStart, slotEnd, bStart, bEnd)) {
+            available = false;
+            break;
+          }
+        }
+
+        slots.push({
+          start: s.start,
+          end: s.end,
+          available,
+          at: slotStart.toISOString(),
+        });
+      }
+
+      res.json({ slots });
+    } catch (e: any) {
+      console.error("availability error:", e);
+      res.status(500).json({ error: e?.message || "Availability error" });
+    }
+  });
+
   // === ADMIN ===
   app.get("/api/admin/admins", requireUser, requireAdmin, async (_req, res) => {
     try {
@@ -504,7 +676,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const currentUser = req.user!;
-      if (userId === currentUser.id) return res.status(400).json({ message: "You cannot delete your own admin account", fieldErrors: {} });
+      if (userId === currentUser.id)
+        return res.status(400).json({ message: "You cannot delete your own admin account", fieldErrors: {} });
 
       const target = await getDoc<any>("users", userId);
       if (!target) return res.status(404).json({ message: "User not found", fieldErrors: {} });
@@ -596,7 +769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // === ADMIN NOTIFICATIONS (existing) ===
+  // === ADMIN NOTIFICATIONS ===
   app.get("/api/admin/notifications", requireUser, requireAdmin, async (req, res) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -633,7 +806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // === USER NOTIFICATIONS (new, for avatar badge & tutor alerts) ===
+  // === USER NOTIFICATIONS (for avatar badge & tutor alerts) ===
   app.get("/api/notifications", requireUser, async (req, res) => {
     try {
       const user = req.user!;
@@ -643,7 +816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const q = fdb!
         .collection("notifications")
-        .where("audience", "in", ["user"]) // personal notifications
+        .where("audience", "==", "user")
         .where("userId", "==", user.id)
         .orderBy("createdAt", "desc")
         .offset(offset)
@@ -653,7 +826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       res.json(list);
     } catch (error) {
-      // If "in" not indexed, fallback to single where
+      // fallback (no "audience" equality)
       try {
         const user = req.user!;
         const page = parseInt((req.query.page as string) || "1");
@@ -712,7 +885,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // === TUTORS LISTING ===
+  // === TUTORS LISTING (with subjects) ===
   app.get("/api/tutors", async (_req, res) => {
     try {
       const profs = await listCollection<any>("tutor_profiles", [
@@ -720,31 +893,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ["isVerified", "==", true],
       ]);
 
-      const userIds = profs.map((p) => p.userId).filter(Boolean);
-      const mapUsers = await batchLoadMap<any>("users", userIds);
+      if (profs.length === 0) return res.json([]);
 
+      const userIds = profs.map((p) => p.userId).filter(Boolean);
       const tutorIds = profs.map((p) => p.id);
-      const tsSnaps = await fdb!.collection("tutor_subjects").where("tutorId", "in", tutorIds.slice(0, 10)).get().catch(async () => null);
-      // If "in" fails due to >10 or no index, fallback to per tutor
-      const subjectIds: string[] = [];
-      if (tsSnaps) {
-        tsSnaps.docs.forEach((d) => subjectIds.push(d.get("subjectId")));
-      } else {
-        for (const p of profs) {
-          const s = await fdb!.collection("tutor_subjects").where("tutorId", "==", p.id).get();
-          s.docs.forEach((d) => subjectIds.push(d.get("subjectId")));
-        }
+
+      const [mapUsers, tsDocs] = await Promise.all([
+        batchLoadMap<any>("users", userIds),
+        (async () => {
+          // fetch tutor_subjects in chunks of 10 for 'in' constraint
+          const chunks: string[][] = [];
+          for (let i = 0; i < tutorIds.length; i += 10) chunks.push(tutorIds.slice(i, i + 10));
+          const acc: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+          for (const chunk of chunks) {
+            const snap = await fdb!.collection("tutor_subjects").where("tutorId", "in", chunk).get();
+            acc.push(...snap.docs);
+          }
+          return acc;
+        })(),
+      ]);
+
+      const byTutor = new Map<string, string[]>();
+      for (const d of tsDocs) {
+        const tId = d.get("tutorId") as string;
+        const sId = d.get("subjectId") as string;
+        if (!byTutor.has(tId)) byTutor.set(tId, []);
+        byTutor.get(tId)!.push(sId);
       }
+
+      const subjectIds = Array.from(
+        new Set(tsDocs.map((d) => d.get("subjectId") as string).filter(Boolean))
+      );
       const mapSubjects = await batchLoadMap<any>("subjects", subjectIds);
 
       const tutorsWithSubjects = profs.map((p) => {
-        // rebuild subjects per tutor (lighter)
-        const subjects: any[] = [];
-        for (const [sid, subj] of mapSubjects) {
-          // no reverse index; skip strict join to avoid heavy loops
-          // UI can request subjects per tutor from /api/tutors/profile if needed
-        }
-        return { ...p, user: mapUsers.get(p.userId) || null, subjects: [] as any[] };
+        const sids = byTutor.get(p.id) || [];
+        const subjects = sids
+          .map((sid) => (mapSubjects.get(sid) ? { id: sid, ...mapSubjects.get(sid)! } : null))
+          .filter(Boolean);
+        return { ...p, user: mapUsers.get(p.userId) || null, subjects };
       });
 
       res.json(tutorsWithSubjects);
@@ -835,10 +1022,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === CREATE SESSION with availability + conflict validation ===
   app.post("/api/sessions", requireUser, async (req, res) => {
     try {
       const user = req.user!;
-      if (user.role !== "student") return res.status(403).json({ message: "Only students can book sessions", fieldErrors: {} });
+      if (user.role !== "student") {
+        return res.status(403).json({ message: "Only students can book sessions", fieldErrors: {} });
+      }
 
       const body = insertSessionSchema.parse({
         ...req.body,
@@ -846,26 +1036,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "scheduled",
       });
 
-      const scheduledAt = body.scheduledAt instanceof Date ? body.scheduledAt : new Date(body.scheduledAt);
+      const scheduledAt =
+        body.scheduledAt instanceof Date ? body.scheduledAt : new Date(body.scheduledAt);
+      if (isNaN(scheduledAt.getTime()))
+        return res.status(400).json({ message: "Invalid scheduledAt", fieldErrors: {} });
 
+      const duration = Number(body.duration ?? 60); // minutes
+      const tutorProfile = await getDoc<any>("tutor_profiles", body.tutorId);
+      if (!tutorProfile)
+        return res.status(404).json({ message: "Tutor profile not found", fieldErrors: {} });
+
+      // 1) Ensure day is available
+      const key = toDayKey(scheduledAt);
+      const dayAvail = tutorProfile.availability?.[key];
+      if (!dayAvail || !dayAvail.isAvailable) {
+        return res.status(409).json({ message: "Tutor not available this day", fieldErrors: {} });
+      }
+
+      const { h: sh, m: sm } = parseHHMM(dayAvail.startTime, "09:00");
+      const { h: eh, m: em } = parseHHMM(dayAvail.endTime, "17:00");
+      const dayStart = new Date(scheduledAt);
+      dayStart.setHours(sh, sm, 0, 0);
+      const dayEnd = new Date(scheduledAt);
+      dayEnd.setHours(eh, em, 0, 0);
+
+      const sesStart = scheduledAt;
+      const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
+
+      if (!(sesStart >= dayStart && sesEnd <= dayEnd)) {
+        return res.status(409).json({ message: "Outside tutor availability window", fieldErrors: {} });
+      }
+
+      // 2) Prevent double booking (overlap with existing sessions on same day)
+      const sDay = startOfDay(scheduledAt);
+      const eDay = endOfDay(scheduledAt);
+      const bookedSnap = await fdb!
+        .collection("tutoring_sessions")
+        .where("tutorId", "==", body.tutorId)
+        .where("scheduledAt", ">=", sDay)
+        .where("scheduledAt", "<=", eDay)
+        .get();
+
+      for (const d of bookedSnap.docs) {
+        const s = { id: d.id, ...(d.data() as any) };
+        if ((s.status || "scheduled") === "cancelled") continue;
+        const bStart = new Date(coerceMillis(s.scheduledAt));
+        const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
+        if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
+          return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
+        }
+      }
+
+      // 3) Create session
       const docRef = await fdb!.collection("tutoring_sessions").add({
         ...body,
-        scheduledAt,
+        scheduledAt: sesStart,
+        duration,
         createdAt: now(),
         updatedAt: now(),
       });
 
-      // Create a notification for the tutor (appears on tutor's avatar count)
-      const tutorProfile = await getDoc<any>("tutor_profiles", body.tutorId);
-      const tutorUserId = tutorProfile?.userId;
+      // 4) Notify tutor
+      const tutorUserId = tutorProfile.userId;
       const studentName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "A student";
-
       if (tutorUserId) {
         await fdb!.collection("notifications").add({
           type: "SESSION_REQUESTED",
           title: "New session request",
-          body: `${studentName} requested a session on ${scheduledAt.toLocaleString()}`,
-          userId: tutorUserId,     // personal notification target
+          body: `${studentName} requested a session on ${sesStart.toLocaleString()}`,
+          userId: tutorUserId, // personal notification target
           audience: "user",
           data: { sessionId: docRef.id, tutorId: body.tutorId, studentId: user.id, subjectId: body.subjectId },
           isRead: false,
@@ -891,7 +1130,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { status } = req.body;
 
       const validStatuses = ["scheduled", "in_progress", "completed", "cancelled"];
-      if (!validStatuses.includes(status)) return res.status(400).json({ message: "Invalid session status", fieldErrors: {} });
+      if (!validStatuses.includes(status))
+        return res.status(400).json({ message: "Invalid session status", fieldErrors: {} });
 
       const ref = fdb!.collection("tutoring_sessions").doc(sessionId);
       const snap = await ref.get();
@@ -923,7 +1163,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reviews/:tutorId", async (req, res) => {
     try {
       const { tutorId } = req.params;
-      const snap = await fdb!.collection("reviews").where("tutorId", "==", tutorId).orderBy("createdAt", "desc").get();
+      const snap = await fdb!
+        .collection("reviews")
+        .where("tutorId", "==", tutorId)
+        .orderBy("createdAt", "desc")
+        .get();
       const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
       const studentIds = Array.from(new Set(raw.map((r) => r.studentId).filter(Boolean)));
       const mapStudents = await batchLoadMap<any>("users", studentIds);
@@ -993,7 +1237,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (snap.exists) {
         await ref.delete();
       } else {
-        const existing = await fdb!.collection("favorites").where("userId", "==", user.id).where("tutorId", "==", tutorId).get();
+        const existing = await fdb!
+          .collection("favorites")
+          .where("userId", "==", user.id)
+          .where("tutorId", "==", tutorId)
+          .get();
         const batch = fdb!.batch();
         existing.docs.forEach((d) => batch.delete(d.ref));
         await batch.commit();
@@ -1012,11 +1260,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existing = await fdb!.collection("subjects").limit(1).get();
       if (existing.empty) {
         const basic = [
-          { id: "math", name: "Mathematics", description: "Math tutoring from basic arithmetic to advanced calculus", category: "STEM" },
-          { id: "science", name: "Science", description: "Science tutoring including biology, chemistry, and physics", category: "STEM" },
-          { id: "english", name: "English", description: "English language arts, writing, and literature", category: "Language Arts" },
-          { id: "history", name: "History", description: "World history, US history, and social studies", category: "Social Studies" },
-          { id: "computer-science", name: "Computer Science", description: "Programming, algorithms, and computer science concepts", category: "STEM" },
+          {
+            id: "math",
+            name: "Mathematics",
+            description: "Math tutoring from basic arithmetic to advanced calculus",
+            category: "STEM",
+          },
+          {
+            id: "science",
+            name: "Science",
+            description: "Science tutoring including biology, chemistry, and physics",
+            category: "STEM",
+          },
+          {
+            id: "english",
+            name: "English",
+            description: "English language arts, writing, and literature",
+            category: "Language Arts",
+          },
+          {
+            id: "history",
+            name: "History",
+            description: "World history, US history, and social studies",
+            category: "Social Studies",
+          },
+          {
+            id: "computer-science",
+            name: "Computer Science",
+            description: "Programming, algorithms, and computer science concepts",
+            category: "STEM",
+          },
         ];
         const batch = fdb!.batch();
         basic.forEach((s) => {

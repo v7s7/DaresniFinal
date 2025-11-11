@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import type { TutorProfile, User, Subject } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +36,7 @@ function useLocalFavorites(userId?: string) {
 }
 
 /* ------------------------------------------------------------ */
-/* Lightweight base session shape (avoid importing Session type) */
+/* Lightweight base session shape                               */
 /* ------------------------------------------------------------ */
 type BaseSession = {
   id: string;
@@ -62,6 +63,8 @@ type SessionVM = BaseSession & {
 export default function StudentDashboard() {
   const { user, isLoading } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
   const [showChat, setShowChat] = useState(false);
   const [chatUserId, setChatUserId] = useState<string | null>(null);
 
@@ -89,7 +92,8 @@ export default function StudentDashboard() {
 
   /* ---------------------- Tutors (for favorites sidebar) ---------------------- */
   const { data: tutorsData } = useQuery<TutorVM[]>({
-    queryKey: ["tutors"],
+    // include subjects in key so tutor mapping refreshes when subjects arrive
+    queryKey: ["tutors", subjects.map((s) => s.id).join("|")],
     queryFn: async () => {
       const base = await getTutorProfiles();
       return Promise.all(
@@ -149,7 +153,7 @@ export default function StudentDashboard() {
               hourlyRate: 0,
               subjects: [],
               availability: {},
-              verified: false,
+              isVerified: false, // fixed key
               rating: 0,
               totalReviews: 0,
               totalSessions: 0,
@@ -282,7 +286,7 @@ export default function StudentDashboard() {
                     <p>No upcoming sessions</p>
                     <Button
                       className="mt-4"
-                      onClick={() => (window.location.href = "/tutors")}
+                      onClick={() => navigate("/tutors")}
                       data-testid="button-browse-tutors"
                     >
                       Browse Tutors
@@ -302,7 +306,7 @@ export default function StudentDashboard() {
                   <Button
                     variant="outline"
                     className="h-20 text-left justify-start"
-                    onClick={() => (window.location.href = "/tutors")}
+                    onClick={() => navigate("/tutors")}
                     data-testid="button-find-tutors"
                   >
                     <div className="flex items-center space-x-3">

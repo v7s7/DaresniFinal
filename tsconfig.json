@@ -1,7 +1,10 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./client" },
-    { "path": "./server" }
-  ]
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["client/src/*"],
+      "@shared/*": ["shared/*"]
+    }
+  },
+  "include": ["client/src", "server", "shared"]
 }
