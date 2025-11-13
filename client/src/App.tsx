@@ -1,4 +1,3 @@
-// client/src/App.tsx
 import { useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -42,16 +41,11 @@ type TutorProfileDTO =
     }
   | null;
 
-/**
- * AuthRouteGate:
- * Redirects only from entry/wrong pages.
- * It will NOT override user navigation to allowed pages (e.g., /tutors).
- */
 function AuthRouteGate() {
   const { user, isLoading } = useAuth();
   const [location, navigate] = useLocation();
 
-  // Load tutor profile only when role=tutor
+  // Tutor profile only for tutors
   const { data: tutorProfile, isLoading: tpLoading } = useQuery<TutorProfileDTO>({
     queryKey: ["/api/tutors/profile"],
     enabled: !!user && user.role === "tutor",
@@ -65,23 +59,38 @@ function AuthRouteGate() {
 
     const path = location;
 
-    // Helpers
     const at = (p: string) => path === p;
     const inEntry = at("/") || at("/dashboard") || at("/complete-signup");
-    const onTutorArea = path.startsWith("/tutor-");
-    const onStudentArea = path.startsWith("/student-");
-    const onBrowseOrPublic =
-      path.startsWith("/tutors") ||
-      at("/profile-settings") ||
-      at("/my-sessions") ||
-      at("/notifications") ||  // Allow notifications for all users
-      at("/admin") ||
-      at("/admin-setup") ||
-      path.startsWith("/tutor-profile"); // compatibility
+    const onStudentArea = path.startsWith("/student-") || at("/student-dashboard");
+    const onTutorArea = path.startsWith("/tutor-") || at("/tutor-dashboard");
+    const onAdminArea = at("/admin") || at("/admin-setup");
 
-    // --- Student routing ---
+    // ------- ADMIN FIRST -------
+    if (user.role === "admin") {
+      // From entry / student / tutor / pending / complete-tutor-profile -> push to /admin
+      if (
+        inEntry ||
+        onStudentArea ||
+        onTutorArea ||
+        at("/pending-approval") ||
+        at("/complete-tutor-profile")
+      ) {
+        if (!at("/admin")) {
+          navigate("/admin", { replace: true });
+        }
+      }
+      // Admin is allowed to stay on /admin and /admin-setup
+      return;
+    }
+
+    // Non-admin: block /admin and /admin-setup
+    if (onAdminArea) {
+      navigate("/", { replace: true });
+      return;
+    }
+
+    // ------- STUDENT -------
     if (user.role === "student") {
-      // If coming from entry/wrong pages, push to student dashboard
       if (
         inEntry ||
         at("/tutor-dashboard") ||
@@ -93,15 +102,15 @@ function AuthRouteGate() {
         }
         return;
       }
-      // Otherwise allow navigation (e.g., /tutors, /profile-settings, /notifications, etc.)
+      // Otherwise allow (tutors browse, profile settings, notifications, etc.)
       return;
     }
 
-    // --- Tutor routing ---
+    // ------- TUTOR -------
     if (user.role === "tutor") {
       if (tpLoading) return;
 
-      // No profile yet -> force to complete profile (except when already there)
+      // If no tutor profile yet -> force to complete profile
       if (!tutorProfile) {
         if (!at("/complete-tutor-profile") && !at("/complete-signup")) {
           navigate("/complete-tutor-profile", { replace: true });
@@ -115,17 +124,17 @@ function AuthRouteGate() {
         tutorProfile?.__approved === true;
 
       if (!approved) {
-        // Pending tutors: block ONLY the tutor dashboard + entry pages
+        // Pending tutors: block tutor dashboard, entry, and student dashboards
         if (at("/tutor-dashboard") || inEntry || onStudentArea) {
           if (!at("/pending-approval")) {
             navigate("/pending-approval", { replace: true });
           }
         }
-        // Allow them to browse/public pages + notifications freely
+        // They can still browse tutors, open profile-settings, notifications, etc.
         return;
       }
 
-      // Approved tutor: from entry/wrong pages -> tutor dashboard
+      // Approved tutor: from entry / pending / complete-tutor-profile / student dashboard -> go to tutor dashboard
       if (
         inEntry ||
         at("/pending-approval") ||
@@ -138,7 +147,7 @@ function AuthRouteGate() {
         return;
       }
 
-      // Otherwise allow navigation (e.g., /tutors, /profile-settings, /notifications, etc.)
+      // Otherwise allow navigation
       return;
     }
   }, [user, isLoading, tutorProfile, tpLoading, location, navigate]);

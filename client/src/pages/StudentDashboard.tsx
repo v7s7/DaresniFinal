@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import type { TutorProfile, User, Subject } from "@shared/types";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,11 +19,13 @@ import {
 } from "@/lib/firestore";
 
 /* ------------------------------------------------------------ */
-/* Local favorites (per-user)                                   */
+/* Helpers                                                      */
 /* ------------------------------------------------------------ */
+
 function useLocalFavorites(userId?: string) {
   const key = userId ? `favorites:${userId}` : undefined;
   const [favorites, setFavorites] = useState<string[]>([]);
+
   useEffect(() => {
     if (!key) return;
     try {
@@ -32,33 +35,68 @@ function useLocalFavorites(userId?: string) {
       setFavorites([]);
     }
   }, [key]);
+
   return favorites;
 }
 
+// Robust date normalizer (supports Date, Firestore Timestamp, ISO, millis, etc.)
+function normalizeDate(raw: any): Date {
+  try {
+    if (!raw) return new Date();
+
+    if (raw instanceof Date) {
+      return isNaN(raw.getTime()) ? new Date() : raw;
+    }
+
+    if (typeof raw === "object" && typeof raw.toDate === "function") {
+      const d = raw.toDate();
+      return d instanceof Date && !isNaN(d.getTime()) ? d : new Date();
+    }
+
+    if (typeof raw === "object" && typeof raw._seconds === "number") {
+      const d = new Date(raw._seconds * 1000);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    if (typeof raw === "string" || typeof raw === "number") {
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    return new Date();
+  } catch {
+    return new Date();
+  }
+}
+
 /* ------------------------------------------------------------ */
-/* Lightweight base session shape                               */
+/* Types                                                        */
 /* ------------------------------------------------------------ */
+
 type BaseSession = {
   id: string;
   status: "pending" | "scheduled" | "in_progress" | "completed" | "cancelled";
-  scheduledAt: string | Date;
+  scheduledAt: any; // can be Timestamp | string | Date
   duration?: number;
   meetingLink?: string | null;
   notes?: string;
   priceCents?: number;
   subjectId: string;
-  tutorId: string;
+  tutorId: string; // NOTE: this is the tutorProfileId in the new API
   studentId: string;
 };
 
 type TutorVM = TutorProfile & { user: User; subjects: Subject[] };
 
-/* View model passed to SessionCard */
 type SessionVM = BaseSession & {
   student: User;
   tutor: TutorProfile & { user: User };
   subject: Subject;
 };
+
+/* ------------------------------------------------------------ */
+/* Component                                                    */
+/* ------------------------------------------------------------ */
 
 export default function StudentDashboard() {
   const { user, isLoading } = useAuth();
@@ -75,14 +113,17 @@ export default function StudentDashboard() {
         description: "Please sign in to view your dashboard.",
         variant: "destructive",
       });
+      navigate("/");
     }
-  }, [user, isLoading, toast]);
+  }, [user, isLoading, toast, navigate]);
 
   /* ---------------------- Subjects ---------------------- */
+
   const { data: subjectsData } = useQuery<Subject[]>({
     queryKey: ["subjects"],
     queryFn: () => getSubjects(),
   });
+
   const subjects: Subject[] = subjectsData ?? [];
 
   const subjectMap = useMemo(
@@ -91,8 +132,8 @@ export default function StudentDashboard() {
   );
 
   /* ---------------------- Tutors (for favorites sidebar) ---------------------- */
+
   const { data: tutorsData } = useQuery<TutorVM[]>({
-    // include subjects in key so tutor mapping refreshes when subjects arrive
     queryKey: ["tutors", subjects.map((s) => s.id).join("|")],
     queryFn: async () => {
       const base = await getTutorProfiles();
@@ -114,22 +155,48 @@ export default function StudentDashboard() {
       );
     },
   });
+
   const tutors: TutorVM[] = tutorsData ?? [];
 
   /* ---------------------- Current user's favorites (local) ---------------------- */
+
   const favorites = useLocalFavorites(user?.id);
 
   /* ---------------------- Student Sessions ---------------------- */
-  const { data: sessionsData, isLoading: sessionsLoading } = useQuery<SessionVM[]>({
+
+  const {
+    data: sessionsData,
+    isLoading: sessionsLoading,
+  } = useQuery<SessionVM[]>({
     queryKey: ["studentSessions", user?.id],
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [] as SessionVM[];
 
-      const raw = (await getUserSessions(user.id, "student")) as BaseSession[];
+      const [rawSessions, tutorProfiles] = await Promise.all([
+        getUserSessions(user.id, "student") as Promise<BaseSession[]>,
+        getTutorProfiles(),
+      ]);
+
+      const tutorProfileById = new Map<string, TutorProfile>();
+      const tutorProfileByUserId = new Map<string, TutorProfile>();
+
+      for (const tp of tutorProfiles) {
+        tutorProfileById.set(tp.id, tp);
+        tutorProfileByUserId.set(tp.userId, tp);
+      }
+
+      const userCache = new Map<string, User>();
+
+      const getUserCached = async (uid: string): Promise<User> => {
+        if (userCache.has(uid)) return userCache.get(uid)!;
+        const u = (await getUserDoc(uid)) as User;
+        userCache.set(uid, u);
+        return u;
+      };
 
       return Promise.all(
-        raw.map(async (s) => {
+        rawSessions.map(async (s) => {
           const subject =
             subjectMap.get(s.subjectId) ??
             ({
@@ -140,27 +207,35 @@ export default function StudentDashboard() {
               createdAt: new Date(),
             } as Subject);
 
-          const allProfiles = await getTutorProfiles();
-          const tProfile = allProfiles.find((t) => t.userId === s.tutorId);
-          const tutorUser = (await getUserDoc(s.tutorId)) as User;
-          const studentUser = (await getUserDoc(s.studentId)) as User;
+          // New sessions: tutorId is tutorProfileId
+          let tutorProfile =
+            tutorProfileById.get(s.tutorId) ||
+            tutorProfileByUserId.get(s.tutorId); // legacy fallback
+
+          const tutorUserId = tutorProfile?.userId ?? s.tutorId;
+
+          const [tutorUser, studentUser] = await Promise.all([
+            getUserCached(tutorUserId),
+            getUserCached(s.studentId),
+          ]);
 
           const tutor: TutorProfile & { user: User } = {
-            ...(tProfile ?? {
-              id: s.tutorId,
-              userId: s.tutorId,
-              bio: "",
-              hourlyRate: 0,
-              subjects: [],
-              availability: {},
-              isVerified: false,
-              rating: 0,
-              totalReviews: 0,
-              totalSessions: 0,
-              profileImageUrl: null,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }),
+            ...(tutorProfile ??
+              ({
+                id: s.tutorId,
+                userId: tutorUserId,
+                bio: "",
+                hourlyRate: 0,
+                subjects: [],
+                availability: {},
+                isVerified: false,
+                rating: 0,
+                totalReviews: 0,
+                totalSessions: 0,
+                profileImageUrl: null,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              } as TutorProfile)),
             user: tutorUser,
           };
 
@@ -176,12 +251,12 @@ export default function StudentDashboard() {
   });
 
   const sessions: SessionVM[] = sessionsData ?? [];
-  const now = new Date();
 
   const pendingSessions: SessionVM[] = useMemo(
     () =>
       sessions.filter(
-        (s) => s.status === "pending" && new Date(s.scheduledAt) > now,
+        (s) =>
+          s.status === "pending" && normalizeDate(s.scheduledAt) > new Date(),
       ),
     [sessions],
   );
@@ -189,7 +264,8 @@ export default function StudentDashboard() {
   const upcomingSessions: SessionVM[] = useMemo(
     () =>
       sessions.filter(
-        (s) => s.status === "scheduled" && new Date(s.scheduledAt) > now,
+        (s) =>
+          s.status === "scheduled" && normalizeDate(s.scheduledAt) > new Date(),
       ),
     [sessions],
   );
@@ -449,7 +525,7 @@ export default function StudentDashboard() {
                             {session.tutor.user.firstName}
                           </div>
                           <div className="text-muted-foreground">
-                            {new Date(
+                            {normalizeDate(
                               session.scheduledAt,
                             ).toLocaleDateString()}
                           </div>

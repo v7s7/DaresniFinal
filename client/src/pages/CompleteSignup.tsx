@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -31,7 +31,7 @@ import {
 import type { Subject } from "@shared/schema";
 
 export default function CompleteSignup() {
-  const { refreshUserData } = useAuth();
+  const { user, isLoading: authLoading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
@@ -47,6 +47,22 @@ export default function CompleteSignup() {
       subjects: [] as string[],
     },
   });
+
+  // Redirect if user is not logged in or already has a role
+  useEffect(() => {
+    if (authLoading) return;
+
+    // Not signed in → go back home / login
+    if (!user) {
+      setLocation("/", { replace: true });
+      return;
+    }
+
+    // Already has a role → they shouldn't be here
+    if (user.role) {
+      setLocation("/", { replace: true });
+    }
+  }, [authLoading, user, setLocation]);
 
   const { data: subjects = [] } = useQuery<Subject[]>({
     queryKey: ["/api/subjects"],
@@ -86,8 +102,8 @@ export default function CompleteSignup() {
           title: "Welcome to Daresni!",
           description: "Start browsing tutors and book your first session!",
         });
-        // FIX: send new students directly to their dashboard
-        setLocation("/student-dashboard");
+        // Let the role-aware "/" route decide which dashboard to show
+        setLocation("/");
       }
     },
     onError: (error: any) => {
@@ -160,7 +176,10 @@ export default function CompleteSignup() {
       ...t,
       hourlyRate,
       certifications: t.certifications
-        ? t.certifications.split(",").map((c) => c.trim()).filter(Boolean)
+        ? t.certifications
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean)
         : [],
     };
 
@@ -170,7 +189,6 @@ export default function CompleteSignup() {
     });
   };
 
-  // Hardened: avoids duplicates on rapid events
   const handleSubjectChange = (subjectId: string, checked: boolean) => {
     setFormData((prev) => {
       const set = new Set(prev.tutorData.subjects);
@@ -314,9 +332,9 @@ export default function CompleteSignup() {
                           Application Review Process
                         </p>
                         <p className="text-orange-800">
-                          Your profile will be reviewed by our admin team before you can start tutoring.
-                          This typically takes <strong>1-2 business days</strong>. You'll receive an email
-                          once approved.
+                          Your profile will be reviewed by our admin team before you can start
+                          tutoring. This typically takes <strong>1–2 business days</strong>. You'll
+                          receive an email once approved.
                         </p>
                       </div>
                     </div>
@@ -391,7 +409,7 @@ export default function CompleteSignup() {
                         />
                       </div>
                       <p className="text-xs text-gray-500">
-                        Recommended: $15-$50 per hour depending on subject and experience
+                        Recommended: $15–$50 per hour depending on subject and experience
                       </p>
                     </div>
                   </div>
@@ -505,7 +523,7 @@ export default function CompleteSignup() {
                 >
                   {completeSignupMutation.isPending ? (
                     <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
                       <span>Processing...</span>
                     </div>
                   ) : selectedRole === "tutor" ? (

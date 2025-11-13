@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
 
 type Role = "student" | "tutor" | "admin" | null;
@@ -42,17 +42,19 @@ export default function Navbar() {
   // Current user + attached tutor profile (id/verification)
   const { data: me } = useQuery<MeResponse>({
     queryKey: ["/api/me"],
+    enabled: !!user, // avoid 401 spam before login
   });
 
   // Unread notifications (poll)
   const { data: unread = 0 } = useQuery({
     queryKey: ["unread-notifications-count"],
+    enabled: !!user, // only poll when signed in
     queryFn: async (): Promise<number> => {
       const res = await fetch("/api/notifications/unread-count", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
-      if (!res.ok) return 0; // be tolerant if API is briefly unavailable
+      if (!res.ok) return 0;
       const json = await res.json();
       return Number(json?.unread ?? 0);
     },
@@ -63,8 +65,11 @@ export default function Navbar() {
   const handleLogout = async () => {
     try {
       await signOut();
-      toast({ title: "Goodbye!", description: "You have been successfully signed out." });
-    } catch (error) {
+      toast({
+        title: "Goodbye!",
+        description: "You have been successfully signed out.",
+      });
+    } catch {
       toast({
         title: "Sign out failed",
         description: "There was an error signing you out. Please try again.",
@@ -73,13 +78,13 @@ export default function Navbar() {
     }
   };
 
-  // Always send "Dashboard" to "/" (role-aware route in App.tsx renders the correct dashboard)
+  // Always send "Dashboard" to "/" (AuthRouteGate decides which dashboard)
   const desktopNav = useMemo(
     () => [
       { href: "/", label: "Dashboard", icon: "fas fa-home" },
       { href: "/tutors", label: "Find Tutors", icon: "fas fa-search" },
     ],
-    []
+    [],
   );
 
   const roleColor = (role?: Role) =>
@@ -102,7 +107,10 @@ export default function Navbar() {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo -> always dashboard "/" */}
-          <Link href="/" className="flex items-center space-x-2 text-white hover:text-gray-200">
+          <Link
+            href="/"
+            className="flex items-center space-x-2 text-white hover:text-gray-200"
+          >
             <i className="fas fa-graduation-cap text-2xl" />
             <span className="text-xl font-bold">Daresni</span>
           </Link>
@@ -118,7 +126,9 @@ export default function Navbar() {
                     ? "bg-white/20 text-white"
                     : "text-white/80 hover:text-white hover:bg-white/10"
                 }`}
-                data-testid={`nav-link-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                data-testid={`nav-link-${item.label
+                  .toLowerCase()
+                  .replace(/\s+/g, "-")}`}
               >
                 <i className={item.icon} />
                 <span>{item.label}</span>
@@ -128,9 +138,11 @@ export default function Navbar() {
             {/* Public profile visible only when tutor is verified + active */}
             {canShowPublic && (
               <Link
-                href={`/tutor/${me!.tutorProfile!.id}`}
+                href={`/tutors/${me!.tutorProfile!.id}`}
                 className={`flex items-center space-x-2 px-3 py-2 rounded-md transition-colors ${
-                  location?.startsWith("/tutor/") ? "bg-white/20 text-white" : "text-white/80 hover:text-white hover:bg-white/10"
+                  location?.startsWith("/tutors/")
+                    ? "bg-white/20 text-white"
+                    : "text-white/80 hover:text-white hover:bg-white/10"
                 }`}
                 data-testid="nav-link-public-profile"
               >
@@ -143,7 +155,10 @@ export default function Navbar() {
           {/* User section */}
           <div className="flex items-center space-x-4">
             {user?.role && (
-              <Badge className={roleColor(user.role)} data-testid="badge-user-role">
+              <Badge
+                className={roleColor(user.role)}
+                data-testid="badge-user-role"
+              >
                 {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
               </Badge>
             )}
@@ -154,10 +169,15 @@ export default function Navbar() {
                   variant="ghost"
                   className="relative h-10 w-10 rounded-full"
                   data-testid="button-user-menu"
-                  aria-label={`Open user menu${unread > 0 ? `, ${unread} unread notifications` : ""}`}
+                  aria-label={`Open user menu${
+                    unread > 0 ? `, ${unread} unread notifications` : ""
+                  }`}
                 >
                   <Avatar className="h-10 w-10">
-                    <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || "User"} />
+                    <AvatarImage
+                      src={user?.profileImageUrl || undefined}
+                      alt={user?.firstName || "User"}
+                    />
                     <AvatarFallback className="bg-white/20 text-white">
                       {(user?.firstName?.[0] || "").toUpperCase()}
                       {(user?.lastName?.[0] || "").toUpperCase()}
@@ -183,23 +203,34 @@ export default function Navbar() {
                     <p className="font-medium">
                       {user?.firstName} {user?.lastName}
                     </p>
-                    <p className="w-[200px] truncate text-sm text-muted-foreground">{user?.email}</p>
+                    <p className="w-[200px] truncate text-sm text-muted-foreground">
+                      {user?.email}
+                    </p>
                   </div>
                 </div>
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem onClick={() => navigate("/")} data-testid="menu-item-dashboard">
+                <DropdownMenuItem
+                  onClick={() => navigate("/")}
+                  data-testid="menu-item-dashboard"
+                >
                   <i className="fas fa-home mr-2" />
                   Dashboard
                 </DropdownMenuItem>
 
                 {me?.user?.role === "student" && (
                   <>
-                    <DropdownMenuItem onClick={() => navigate("/tutors")} data-testid="menu-item-find-tutors">
+                    <DropdownMenuItem
+                      onClick={() => navigate("/tutors")}
+                      data-testid="menu-item-find-tutors"
+                    >
                       <i className="fas fa-search mr-2" />
                       Find Tutors
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate("/sessions")} data-testid="menu-item-my-sessions">
+                    <DropdownMenuItem
+                      onClick={() => navigate("/my-sessions")}
+                      data-testid="menu-item-my-sessions"
+                    >
                       <i className="fas fa-calendar mr-2" />
                       My Sessions
                     </DropdownMenuItem>
@@ -208,13 +239,18 @@ export default function Navbar() {
 
                 {me?.user?.role === "tutor" && (
                   <>
-                    <DropdownMenuItem onClick={() => navigate("/sessions")} data-testid="menu-item-my-sessions">
+                    <DropdownMenuItem
+                      onClick={() => navigate("/my-sessions")}
+                      data-testid="menu-item-my-sessions"
+                    >
                       <i className="fas fa-calendar mr-2" />
                       My Sessions
                     </DropdownMenuItem>
                     {canShowPublic && (
                       <DropdownMenuItem
-                        onClick={() => navigate(`/tutor/${me!.tutorProfile!.id}`)}
+                        onClick={() =>
+                          navigate(`/tutors/${me!.tutorProfile!.id}`)
+                        }
                         data-testid="menu-item-public-profile"
                       >
                         <i className="fas fa-id-badge mr-2" />
@@ -224,12 +260,18 @@ export default function Navbar() {
                   </>
                 )}
 
-                <DropdownMenuItem onClick={() => navigate("/profile-settings")} data-testid="menu-item-profile">
+                <DropdownMenuItem
+                  onClick={() => navigate("/profile-settings")}
+                  data-testid="menu-item-profile"
+                >
                   <i className="fas fa-user mr-2" />
                   Profile Settings
                 </DropdownMenuItem>
 
-                <DropdownMenuItem onClick={() => navigate("/notifications")} data-testid="menu-item-notifications">
+                <DropdownMenuItem
+                  onClick={() => navigate("/notifications")}
+                  data-testid="menu-item-notifications"
+                >
                   <i className="fas fa-bell mr-2" />
                   Notifications
                   {unread > 0 && (
@@ -241,7 +283,11 @@ export default function Navbar() {
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive" data-testid="menu-item-logout">
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="text-destructive focus:text-destructive"
+                  data-testid="menu-item-logout"
+                >
                   <i className="fas fa-sign-out-alt mr-2" />
                   Log out
                 </DropdownMenuItem>
@@ -251,11 +297,15 @@ export default function Navbar() {
             {/* Mobile menu toggle */}
             <Button
               variant="ghost"
-              className="md:hidden text-white hover:text-gray-2 00 hover:bg-white/10"
+              className="md:hidden text-white hover:text-gray-200 hover:bg-white/10"
               onClick={() => setIsMobileMenuOpen((v) => !v)}
               data-testid="button-mobile-menu"
             >
-              <i className={`fas ${isMobileMenuOpen ? "fa-times" : "fa-bars"} text-xl`} />
+              <i
+                className={`fas ${
+                  isMobileMenuOpen ? "fa-times" : "fa-bars"
+                } text-xl`}
+              />
             </Button>
           </div>
         </div>
@@ -269,10 +319,14 @@ export default function Navbar() {
                   key={item.href}
                   href={item.href}
                   className={`flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
-                    location === item.href ? "bg-white/20 text-white" : "text-white/80 hover:text-white hover:bg-white/10"
+                    location === item.href
+                      ? "bg-white/20 text-white"
+                      : "text-white/80 hover:text-white hover:bg-white/10"
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  data-testid={`mobile-nav-link-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
+                  data-testid={`mobile-nav-link-${item.label
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")}`}
                 >
                   <i className={item.icon} />
                   <span>{item.label}</span>
@@ -281,9 +335,11 @@ export default function Navbar() {
 
               {canShowPublic && (
                 <Link
-                  href={`/tutor/${me!.tutorProfile!.id}`}
+                  href={`/tutors/${me!.tutorProfile!.id}`}
                   className={`flex items-center space-x-3 px-4 py-3 rounded-md transition-colors ${
-                    location?.startsWith("/tutor/") ? "bg-white/20 text-white" : "text-white/80 hover:text-white hover:bg-white/10"
+                    location?.startsWith("/tutors/")
+                      ? "bg-white/20 text-white"
+                      : "text-white/80 hover:text-white hover:bg-white/10"
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
                   data-testid="mobile-nav-link-public-profile"
