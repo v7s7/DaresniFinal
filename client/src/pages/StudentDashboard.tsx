@@ -40,7 +40,7 @@ function useLocalFavorites(userId?: string) {
 /* ------------------------------------------------------------ */
 type BaseSession = {
   id: string;
-  status: "scheduled" | "in_progress" | "completed" | "cancelled";
+  status: "pending" | "scheduled" | "in_progress" | "completed" | "cancelled";
   scheduledAt: string | Date;
   duration?: number;
   meetingLink?: string | null;
@@ -87,7 +87,7 @@ export default function StudentDashboard() {
 
   const subjectMap = useMemo(
     () => new Map(subjects.map((s) => [s.id, s] as const)),
-    [subjects]
+    [subjects],
   );
 
   /* ---------------------- Tutors (for favorites sidebar) ---------------------- */
@@ -107,10 +107,10 @@ export default function StudentDashboard() {
                 description: "",
                 category: "",
                 createdAt: new Date(),
-              }
+              },
           );
           return { ...tp, user: u, subjects: sDocs as Subject[] } as TutorVM;
-        })
+        }),
       );
     },
   });
@@ -153,7 +153,7 @@ export default function StudentDashboard() {
               hourlyRate: 0,
               subjects: [],
               availability: {},
-              isVerified: false, // fixed key
+              isVerified: false,
               rating: 0,
               totalReviews: 0,
               totalSessions: 0,
@@ -170,26 +170,38 @@ export default function StudentDashboard() {
             tutor,
             student: studentUser,
           } as SessionVM;
-        })
+        }),
       );
     },
   });
-  const sessions: SessionVM[] = sessionsData ?? [];
 
-  /* ---------------------- Derived buckets ---------------------- */
+  const sessions: SessionVM[] = sessionsData ?? [];
   const now = new Date();
+
+  const pendingSessions: SessionVM[] = useMemo(
+    () =>
+      sessions.filter(
+        (s) => s.status === "pending" && new Date(s.scheduledAt) > now,
+      ),
+    [sessions],
+  );
 
   const upcomingSessions: SessionVM[] = useMemo(
     () =>
       sessions.filter(
-        (s) => s.status === "scheduled" && new Date(s.scheduledAt) > now
+        (s) => s.status === "scheduled" && new Date(s.scheduledAt) > now,
       ),
-    [sessions]
+    [sessions],
+  );
+
+  const completedSessions: SessionVM[] = useMemo(
+    () => sessions.filter((s) => s.status === "completed"),
+    [sessions],
   );
 
   const recentSessions: SessionVM[] = useMemo(
-    () => sessions.filter((s) => s.status === "completed").slice(0, 3),
-    [sessions]
+    () => completedSessions.slice(0, 3),
+    [completedSessions],
   );
 
   const favoriteTutors = useMemo<TutorVM[]>(() => {
@@ -215,39 +227,72 @@ export default function StudentDashboard() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground" data-testid="text-dashboard-title">
+          <h1
+            className="text-3xl font-bold text-foreground"
+            data-testid="text-dashboard-title"
+          >
             Welcome back, {user.firstName || "Student"}!
           </h1>
-          <p className="text-muted-foreground mt-2">Your learning journey continues here</p>
+          <p className="text-muted-foreground mt-2">
+            Your learning journey continues here
+          </p>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-8">
             {/* Quick Stats */}
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-4 gap-4">
               <Card>
                 <CardContent className="p-6 text-center">
-                  <div className="text-2xl font-bold text-primary" data-testid="text-upcoming-sessions">
+                  <div
+                    className="text-2xl font-bold text-primary"
+                    data-testid="text-pending-sessions"
+                  >
+                    {pendingSessions.length}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Pending Requests
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <div
+                    className="text-2xl font-bold text-primary"
+                    data-testid="text-upcoming-sessions"
+                  >
                     {upcomingSessions.length}
                   </div>
-                  <div className="text-sm text-muted-foreground">Upcoming Sessions</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-6 text-center">
-                  <div className="text-2xl font-bold text-primary" data-testid="text-completed-sessions">
-                    {recentSessions.length}
+                  <div className="text-sm text-muted-foreground">
+                    Upcoming Sessions
                   </div>
-                  <div className="text-sm text-muted-foreground">Completed Sessions</div>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-6 text-center">
-                  <div className="text-2xl font-bold text-primary" data-testid="text-total-tutors">
+                  <div
+                    className="text-2xl font-bold text-primary"
+                    data-testid="text-completed-sessions"
+                  >
+                    {completedSessions.length}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Completed Sessions
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-6 text-center">
+                  <div
+                    className="text-2xl font-bold text-primary"
+                    data-testid="text-total-tutors"
+                  >
                     {tutors.length}
                   </div>
-                  <div className="text-sm text-muted-foreground">Available Tutors</div>
+                  <div className="text-sm text-muted-foreground">
+                    Available Tutors
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -296,6 +341,43 @@ export default function StudentDashboard() {
               </CardContent>
             </Card>
 
+            {/* Pending Requests */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <i className="fas fa-hourglass-half mr-2 text-primary" />
+                  Pending Requests
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {sessionsLoading ? (
+                  <div className="space-y-4">
+                    {[...Array(2)].map((_, i) => (
+                      <div key={i} className="animate-pulse">
+                        <div className="h-20 bg-muted rounded" />
+                      </div>
+                    ))}
+                  </div>
+                ) : pendingSessions.length > 0 ? (
+                  <div className="space-y-4">
+                    {pendingSessions.map((session) => (
+                      <SessionCard
+                        key={session.id}
+                        session={session}
+                        userRole="student"
+                        onChat={() => handleStartChat(session.tutor.user.id)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <i className="fas fa-inbox text-4xl mb-4" />
+                    <p>No pending requests</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Quick Actions */}
             <Card>
               <CardHeader>
@@ -315,7 +397,9 @@ export default function StudentDashboard() {
                       </div>
                       <div>
                         <div className="font-semibold">Find Tutors</div>
-                        <div className="text-sm text-muted-foreground">Browse available tutors</div>
+                        <div className="text-sm text-muted-foreground">
+                          Browse available tutors
+                        </div>
                       </div>
                     </div>
                   </Button>
@@ -330,7 +414,9 @@ export default function StudentDashboard() {
                       </div>
                       <div>
                         <div className="font-semibold">Upload Files</div>
-                        <div className="text-sm text-muted-foreground">Share assignments & notes</div>
+                        <div className="text-sm text-muted-foreground">
+                          Share assignments & notes
+                        </div>
                       </div>
                     </div>
                   </Button>
@@ -350,16 +436,22 @@ export default function StudentDashboard() {
                 <div className="space-y-3">
                   {recentSessions.length > 0 ? (
                     recentSessions.map((session) => (
-                      <div key={session.id} className="flex items-center space-x-3 text-sm">
+                      <div
+                        key={session.id}
+                        className="flex items-center space-x-3 text-sm"
+                      >
                         <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
                           <i className="fas fa-check text-primary text-xs" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">
-                            {session.subject.name} with {session.tutor.user.firstName}
+                            {session.subject.name} with{" "}
+                            {session.tutor.user.firstName}
                           </div>
                           <div className="text-muted-foreground">
-                            {new Date(session.scheduledAt).toLocaleDateString()}
+                            {new Date(
+                              session.scheduledAt,
+                            ).toLocaleDateString()}
                           </div>
                         </div>
                       </div>

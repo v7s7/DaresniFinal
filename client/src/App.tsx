@@ -21,6 +21,7 @@ import AdminSetup from "@/pages/AdminSetup";
 import MySessions from "@/pages/MySessions";
 import ProfileSettings from "@/pages/ProfileSettings";
 import PendingApproval from "@/pages/PendingApproval";
+import NotificationsPage from "@/pages/NotificationsPage";
 import Navbar from "@/components/Navbar";
 
 /** Small helper to support legacy /dashboard -> / */
@@ -73,6 +74,7 @@ function AuthRouteGate() {
       path.startsWith("/tutors") ||
       at("/profile-settings") ||
       at("/my-sessions") ||
+      at("/notifications") ||  // Allow notifications for all users
       at("/admin") ||
       at("/admin-setup") ||
       path.startsWith("/tutor-profile"); // compatibility
@@ -91,7 +93,7 @@ function AuthRouteGate() {
         }
         return;
       }
-      // Otherwise allow navigation (e.g., /tutors, /profile-settings, etc.)
+      // Otherwise allow navigation (e.g., /tutors, /profile-settings, /notifications, etc.)
       return;
     }
 
@@ -119,7 +121,7 @@ function AuthRouteGate() {
             navigate("/pending-approval", { replace: true });
           }
         }
-        // Allow them to browse/public pages freely
+        // Allow them to browse/public pages + notifications freely
         return;
       }
 
@@ -136,7 +138,7 @@ function AuthRouteGate() {
         return;
       }
 
-      // Otherwise allow navigation (e.g., /tutors, /profile-settings, etc.)
+      // Otherwise allow navigation (e.g., /tutors, /profile-settings, /notifications, etc.)
       return;
     }
   }, [user, isLoading, tutorProfile, tpLoading, location, navigate]);
@@ -170,6 +172,7 @@ export default function App() {
             <Route path="/tutor-dashboard" component={TutorDashboard} />
             <Route path="/profile-settings" component={ProfileSettings} />
             <Route path="/my-sessions" component={MySessions} />
+            <Route path="/notifications" component={NotificationsPage} />
 
             {/* Admin */}
             <Route path="/admin-setup" component={AdminSetup} />

@@ -1,4 +1,3 @@
-// server/routes.ts
 import express, { type Express } from "express";
 import { createServer, type Server } from "http";
 import path from "path";
@@ -55,7 +54,9 @@ const insertSessionSchema = z.object({
   scheduledAt: z.union([z.string(), z.date()]),
   duration: z.number().int().positive().optional(), // minutes
   durationMinutes: z.number().int().positive().optional(), // also accepted
-  status: z.enum(["scheduled", "in_progress", "completed", "cancelled"]).optional(),
+  status: z
+    .enum(["pending", "scheduled", "in_progress", "completed", "cancelled"])
+    .optional(),
 });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -199,6 +200,82 @@ function parseDateParam(s?: string): Date {
   }
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+/* =======================
+   Sessions join helper
+   ======================= */
+
+async function fetchSessionsForUser(user: AuthUser, limit: number): Promise<any[]> {
+  const readSafely = async (base: FirebaseFirestore.Query) => {
+    try {
+      const snap = await base.orderBy("scheduledAt", "desc").limit(limit).get();
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+    } catch (e: any) {
+      if (e?.code === 9) {
+        const snap = await base.limit(limit).get();
+        const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
+        arr.sort((a, b) => coerceMillis(b.scheduledAt) - coerceMillis(a.scheduledAt));
+        return arr;
+      }
+      throw e;
+    }
+  };
+
+  let raw: any[] = [];
+  let tProfile: any | null = null;
+
+  if (user.role === "student") {
+    raw = await readSafely(fdb!.collection("tutoring_sessions").where("studentId", "==", user.id));
+  } else if (user.role === "tutor") {
+    const profSnap = await fdb!.collection("tutor_profiles").where("userId", "==", user.id).limit(1).get();
+    if (profSnap.empty) return [];
+    tProfile = { id: profSnap.docs[0].id, ...profSnap.docs[0].data() } as any;
+    raw = await readSafely(fdb!.collection("tutoring_sessions").where("tutorId", "==", tProfile.id));
+  } else {
+    // admin / unknown -> all
+    raw = await readSafely(fdb!.collection("tutoring_sessions"));
+  }
+
+  // Collect unique ids for batched lookups
+  const tutorProfileIds = Array.from(new Set(raw.map((s) => s.tutorId).filter(Boolean)));
+  const studentIds = Array.from(new Set(raw.map((s) => s.studentId).filter(Boolean)));
+  const subjectIds = Array.from(new Set(raw.map((s) => s.subjectId).filter(Boolean)));
+
+  const [mapTutorProfiles, mapStudents, mapSubjects] = await Promise.all([
+    batchLoadMap<any>("tutor_profiles", tutorProfileIds),
+    batchLoadMap<any>("users", studentIds),
+    batchLoadMap<any>("subjects", subjectIds),
+  ]);
+
+  // For tutors we also need joined tutor user documents:
+  const tutorUserIds = Array.from(
+    new Set(
+      tutorProfileIds
+        .map((tid) => mapTutorProfiles.get(tid)?.userId)
+        .filter(Boolean) as string[]
+    )
+  );
+  const mapTutorUsers = await batchLoadMap<any>("users", tutorUserIds);
+
+  const formatted = raw.map((s) => {
+    const subject = mapSubjects.get(s.subjectId) || null;
+    if (user.role === "student") {
+      const tProf = mapTutorProfiles.get(s.tutorId) || null;
+      const tUser = tProf ? mapTutorUsers.get(tProf.userId) || null : null;
+      return { ...s, subject, tutor: tProf ? { ...tProf, user: tUser } : null };
+    } else if (user.role === "tutor") {
+      const student = mapStudents.get(s.studentId) || null;
+      return { ...s, subject, student };
+    } else {
+      const tProf = mapTutorProfiles.get(s.tutorId) || null;
+      const tUser = tProf ? mapTutorUsers.get(tProf.userId) || null : null;
+      const student = mapStudents.get(s.studentId) || null;
+      return { ...s, subject, tutor: tProf ? { ...tProf, user: tUser } : null, student };
+    }
+  });
+
+  return formatted;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -632,7 +709,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!profile) return res.status(404).json({ error: "Tutor not found" });
 
-      // NEW: parse date & step
+      // parse date & step
       const dateStr = String(req.query.date ?? "");
       const day = parseDateParam(dateStr); // local midnight
       const step = Math.max(15, Math.min(240, parseInt(String(req.query.step ?? "60"), 10) || 60));
@@ -655,10 +732,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where("scheduledAt", "<=", eDay)
         .get();
 
-      const booked = bookedSnap.docs
-        .map((d) => ({ id: d.id, ...(d.data() as any) }))
-        .filter((s) => s.tutorId === profile.id) // keep only this tutor
-        .filter((s) => (s.status || "scheduled") !== "cancelled");
+  const booked = bookedSnap.docs
+  .map((d) => ({ id: d.id, ...(d.data() as any) }))
+  .filter((s) => s.tutorId === profile.id) // keep only this tutor
+  .filter((s) => {
+    const st = (s.status || "scheduled") as string;
+    // Only confirmed/active sessions block availability
+    return st === "scheduled" || st === "in_progress";
+  });
+
 
       const slots: Array<{ start: string; end: string; available: boolean; at: string }> = [];
       for (const s of generateSlots(
@@ -985,78 +1067,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.user!;
       const limit = Math.min(parseInt((req.query.limit as string) || "100"), 200);
-
-      const readSafely = async (base: FirebaseFirestore.Query) => {
-        try {
-          const snap = await base.orderBy("scheduledAt", "desc").limit(limit).get();
-          return snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-        } catch (e: any) {
-          if (e?.code === 9) {
-            const snap = await base.limit(limit).get();
-            const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() } as any));
-            arr.sort((a, b) => coerceMillis(b.scheduledAt) - coerceMillis(a.scheduledAt));
-            return arr;
-          }
-          throw e;
-        }
-      };
-
-      let raw: any[] = [];
-      let tProfile: any | null = null;
-
-      if (user.role === "student") {
-        raw = await readSafely(fdb!.collection("tutoring_sessions").where("studentId", "==", user.id));
-      } else if (user.role === "tutor") {
-        const profSnap = await fdb!.collection("tutor_profiles").where("userId", "==", user.id).limit(1).get();
-        if (profSnap.empty) return res.json([]);
-        tProfile = { id: profSnap.docs[0].id, ...profSnap.docs[0].data() } as any;
-        raw = await readSafely(fdb!.collection("tutoring_sessions").where("tutorId", "==", tProfile.id));
-      } else {
-        raw = await readSafely(fdb!.collection("tutoring_sessions"));
-      }
-
-      // Collect unique ids for batched lookups
-      const tutorProfileIds = Array.from(new Set(raw.map((s) => s.tutorId).filter(Boolean)));
-      const studentIds = Array.from(new Set(raw.map((s) => s.studentId).filter(Boolean)));
-      const subjectIds = Array.from(new Set(raw.map((s) => s.subjectId).filter(Boolean)));
-
-      const [mapTutorProfiles, mapStudents, mapSubjects] = await Promise.all([
-        batchLoadMap<any>("tutor_profiles", tutorProfileIds),
-        batchLoadMap<any>("users", studentIds),
-        batchLoadMap<any>("subjects", subjectIds),
-      ]);
-
-      // For tutors we also need joined tutor user documents:
-      const tutorUserIds = Array.from(
-        new Set(
-          tutorProfileIds
-            .map((tid) => mapTutorProfiles.get(tid)?.userId)
-            .filter(Boolean) as string[]
-        )
-      );
-      const mapTutorUsers = await batchLoadMap<any>("users", tutorUserIds);
-
-      const formatted = raw.map((s) => {
-        const subject = mapSubjects.get(s.subjectId) || null;
-        if (user.role === "student") {
-          const tProf = mapTutorProfiles.get(s.tutorId) || null;
-          const tUser = tProf ? mapTutorUsers.get(tProf.userId) || null : null;
-          return { ...s, subject, tutor: tProf ? { ...tProf, user: tUser } : null };
-        } else if (user.role === "tutor") {
-          const student = mapStudents.get(s.studentId) || null;
-          return { ...s, subject, student };
-        } else {
-          const tProf = mapTutorProfiles.get(s.tutorId) || null;
-          const tUser = tProf ? mapTutorUsers.get(tProf.userId) || null : null;
-          const student = mapStudents.get(s.studentId) || null;
-          return { ...s, subject, tutor: tProf ? { ...tProf, user: tUser } : null, student };
-        }
-      });
-
+      const formatted = await fetchSessionsForUser(user, limit);
       res.set("Cache-Control", "private, max-age=5");
       res.json(formatted);
     } catch (error) {
       console.error("Error fetching sessions:", error);
+      res.status(500).json({ message: "Failed to fetch sessions", fieldErrors: {} });
+    }
+  });
+
+  // Compatibility: student-specific endpoint
+  app.get("/api/my-sessions", requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      if (user.role !== "student") {
+        return res.status(403).json({ message: "Only students can view these sessions", fieldErrors: {} });
+      }
+      const limit = Math.min(parseInt((req.query.limit as string) || "100"), 200);
+      const formatted = await fetchSessionsForUser(user, limit);
+      res.set("Cache-Control", "private, max-age=5");
+      res.json(formatted);
+    } catch (error) {
+      console.error("Error fetching student sessions:", error);
+      res.status(500).json({ message: "Failed to fetch sessions", fieldErrors: {} });
+    }
+  });
+
+  // Compatibility: tutor-specific endpoint
+  app.get("/api/tutor/sessions", requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      if (user.role !== "tutor") {
+        return res.status(403).json({ message: "Only tutors can view these sessions", fieldErrors: {} });
+      }
+      const limit = Math.min(parseInt((req.query.limit as string) || "100"), 200);
+      const formatted = await fetchSessionsForUser(user, limit);
+      res.set("Cache-Control", "private, max-age=5");
+      res.json(formatted);
+    } catch (error) {
+      console.error("Error fetching tutor sessions:", error);
       res.status(500).json({ message: "Failed to fetch sessions", fieldErrors: {} });
     }
   });
@@ -1069,11 +1118,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only students can book sessions", fieldErrors: {} });
       }
 
+      console.log("📝 Session booking request:", {
+        studentId: user.id,
+        tutorId: req.body.tutorId,
+        scheduledAt: req.body.scheduledAt,
+        duration: req.body.duration,
+      });
+
       // Parse and normalize inputs
       const body = insertSessionSchema.parse({
         ...req.body,
         studentId: user.id,
-        status: "scheduled",
+        status: "pending", // Start as pending
       });
 
       // scheduledAt -> Date
@@ -1083,13 +1139,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid scheduledAt", fieldErrors: {} });
       }
 
-      // duration -> minutes (support durationMinutes too)
+      // duration -> minutes
       const duration = Number(
         body.duration ?? (req.body?.durationMinutes ?? body.durationMinutes) ?? 60
       );
       const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
 
-      // Resolve tutor profile whether client sent profileId OR userId
+      // Resolve tutor profile
       let tutorProfile = await getDoc<any>("tutor_profiles", body.tutorId);
       if (!tutorProfile) {
         const byUser = await fdb!
@@ -1105,6 +1161,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Tutor profile not found", fieldErrors: {} });
       }
       const resolvedTutorId = tutorProfile.id as string;
+
+      console.log("✅ Tutor profile resolved:", {
+        tutorProfileId: resolvedTutorId,
+        tutorUserId: tutorProfile.userId,
+      });
 
       // 1) Day availability window
       const key = toDayKey(sesStart);
@@ -1124,7 +1185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "Outside tutor availability window", fieldErrors: {} });
       }
 
-      // 2) Conflict check (tutor side, same day)
+      // 2) Conflict check - Check only confirmed sessions (scheduled / in_progress)
       const sDay = startOfDay(sesStart);
       const eDay = endOfDay(sesStart);
       const bookedSnap = await fdb!
@@ -1134,48 +1195,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where("scheduledAt", "<=", eDay)
         .get();
 
-      for (const d of bookedSnap.docs) {
-        const s = { id: d.id, ...(d.data() as any) };
-        if ((s.status || "scheduled") === "cancelled") continue;
-        const bStart = new Date(coerceMillis(s.scheduledAt));
-        const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
-        if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
-          return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
-        }
-      }
+for (const d of bookedSnap.docs) {
+  const s = { id: d.id, ...(d.data() as any) };
+  const st = (s.status || "scheduled") as string;
+  // Only block if session is scheduled (confirmed)
+  if (st !== "scheduled") continue;
 
-      // 3) Create session (store the resolved tutor_profile id)
+  const bStart = new Date(coerceMillis(s.scheduledAt));
+  const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
+  if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
+    return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
+  }
+}
+
+
+      // 3) Create session with PENDING status
       const docRef = await fdb!.collection("tutoring_sessions").add({
         tutorId: resolvedTutorId,
         studentId: user.id,
         subjectId: body.subjectId,
-        scheduledAt: sesStart, // Admin SDK will store as Timestamp
+        scheduledAt: sesStart,
         duration,
-        status: "scheduled",
+        status: "pending", // Start as pending
+        notes: req.body.notes || "",
+        meetingLink: req.body.meetingLink || null,
+        priceCents: req.body.priceCents || 0,
         createdAt: now(),
         updatedAt: now(),
       });
 
-      // 4) Notify tutor (their user account)
+      console.log("✅ Session created:", docRef.id);
+
+      // 4) Notify tutor
       const tutorUserId = tutorProfile.userId;
       const studentName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "A student";
+
       if (tutorUserId) {
-        await fdb!.collection("notifications").add({
-          type: "SESSION_REQUESTED",
-          title: "New session request",
-          body: `${studentName} requested a session on ${sesStart.toLocaleString()}`,
-          userId: tutorUserId,
-          audience: "user",
-          data: { sessionId: docRef.id, tutorId: resolvedTutorId, studentId: user.id, subjectId: body.subjectId },
-          isRead: false,
-          createdAt: now(),
-        });
+        try {
+          const notifRef = await fdb!.collection("notifications").add({
+            type: "SESSION_REQUESTED",
+            title: "New session request",
+            body: `${studentName} requested a session on ${sesStart.toLocaleDateString()} at ${sesStart.toLocaleTimeString()}`,
+            userId: tutorUserId,
+            audience: "user",
+            data: {
+              sessionId: docRef.id,
+              tutorId: resolvedTutorId,
+              studentId: user.id,
+              subjectId: body.subjectId,
+            },
+            isRead: false,
+            createdAt: now(),
+          });
+
+          console.log("✅ Notification created:", notifRef.id, "for tutor user:", tutorUserId);
+        } catch (notifError) {
+          console.error("❌ Failed to create notification:", notifError);
+        }
+      } else {
+        console.warn("⚠️ No tutorUserId found, notification not created");
       }
 
       const snap = await docRef.get();
-      res.json({ id: snap.id, ...snap.data() });
+      const sessionData = { id: snap.id, ...snap.data() };
+
+      console.log("✅ Session booking complete:", sessionData);
+
+      res.json(sessionData);
     } catch (error) {
-      console.error("Error creating session:", error);
+      console.error("❌ Error creating session:", error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Validation failed", fieldErrors: error.flatten().fieldErrors });
       }
@@ -1183,41 +1271,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/sessions/:id", requireUser, async (req, res) => {
-    try {
-      const user = req.user!;
-      const sessionId = req.params.id;
-      const { status } = req.body;
+app.put("/api/sessions/:id", requireUser, async (req, res) => {
+  try {
+    const user = req.user!;
+    const sessionId = req.params.id;
+    const { status } = req.body as { status: string };
 
-      const validStatuses = ["scheduled", "in_progress", "completed", "cancelled"];
-      if (!validStatuses.includes(status))
-        return res.status(400).json({ message: "Invalid session status", fieldErrors: {} });
+    const validStatuses = ["pending", "scheduled", "in_progress", "completed", "cancelled"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: "Invalid session status", fieldErrors: {} });
+    }
 
-      const ref = fdb!.collection("tutoring_sessions").doc(sessionId);
-      const snap = await ref.get();
-      if (!snap.exists) return res.status(404).json({ message: "Session not found", fieldErrors: {} });
-      const session = { id: snap.id, ...snap.data() } as any;
+    const ref = fdb!.collection("tutoring_sessions").doc(sessionId);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      return res.status(404).json({ message: "Session not found", fieldErrors: {} });
+    }
+    const session = { id: snap.id, ...(snap.data() as any) } as any;
 
-      if (user.role === "student" && session.studentId !== user.id) {
+    // Auth: only student, owning tutor, or admin can update
+    if (user.role === "student" && session.studentId !== user.id) {
+      return res.status(403).json({ message: "Not authorized to update this session", fieldErrors: {} });
+    }
+
+    if (user.role === "tutor") {
+      const profSnap = await fdb!.collection("tutor_profiles").where("userId", "==", user.id).limit(1).get();
+      const tutorProfile = profSnap.empty ? null : ({ id: profSnap.docs[0].id, ...profSnap.docs[0].data() } as any);
+      if (!tutorProfile || session.tutorId !== tutorProfile.id) {
         return res.status(403).json({ message: "Not authorized to update this session", fieldErrors: {} });
       }
+    }
 
-      if (user.role === "tutor") {
-        const profSnap = await fdb!.collection("tutor_profiles").where("userId", "==", user.id).limit(1).get();
-        const tutorProfile = profSnap.empty ? null : ({ id: profSnap.docs[0].id, ...profSnap.docs[0].data() } as any);
-        if (!tutorProfile || session.tutorId !== tutorProfile.id) {
-          return res.status(403).json({ message: "Not authorized to update this session", fieldErrors: {} });
+    // If we are confirming the session, enforce conflict check
+    if (status === "scheduled") {
+      const sesStart = new Date(coerceMillis(session.scheduledAt));
+      if (isNaN(sesStart.getTime())) {
+        return res.status(400).json({ message: "Invalid session date", fieldErrors: {} });
+      }
+      const duration = Number(session.duration ?? 60);
+      const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
+
+      const sDay = startOfDay(sesStart);
+      const eDay = endOfDay(sesStart);
+
+      const bookedSnap = await fdb!
+        .collection("tutoring_sessions")
+        .where("tutorId", "==", session.tutorId)
+        .where("scheduledAt", ">=", sDay)
+        .where("scheduledAt", "<=", eDay)
+        .get();
+
+      for (const d of bookedSnap.docs) {
+        if (d.id === sessionId) continue; // ignore self
+        const s = { id: d.id, ...(d.data() as any) };
+        const st = (s.status || "scheduled") as string;
+        if (st !== "scheduled") continue;
+
+        const bStart = new Date(coerceMillis(s.scheduledAt));
+        const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
+        if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
+          return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
         }
       }
-
-      await ref.set({ status, updatedAt: now() }, { merge: true });
-      const updated = await ref.get();
-      res.json({ id: updated.id, ...updated.data() });
-    } catch (error) {
-      console.error("Error updating session:", error);
-      res.status(500).json({ message: "Failed to update session", fieldErrors: {} });
     }
-  });
+
+    await ref.set({ status, updatedAt: now() }, { merge: true });
+    const updated = await ref.get();
+    res.json({ id: updated.id, ...updated.data() });
+  } catch (error) {
+    console.error("Error updating session:", error);
+    res.status(500).json({ message: "Failed to update session", fieldErrors: {} });
+  }
+});
+
 
   // === REVIEWS ===
   app.get("/api/reviews/:tutorId", async (req, res) => {
@@ -1364,6 +1490,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error seeding subjects:", error);
       res.status(500).json({ message: "Failed to seed subjects", fieldErrors: {} });
+    }
+  });
+
+  app.get("/api/admin/tutors/pending", requireUser, requireAdmin, async (_req, res) => {
+    try {
+      if (!fdb) return res.status(500).json({ message: "Firestore not initialized" });
+
+      const snapshot = await fdb
+        .collection("tutor_profiles")
+        .where("isVerified", "==", false)
+        .orderBy("createdAt", "desc")
+        .get();
+
+      const pendingTutors: any[] = [];
+      for (const doc of snapshot.docs) {
+        const tutorData = doc.data();
+        const userDoc = await fdb.collection("users").doc(tutorData.userId).get();
+        const userData = userDoc.exists ? userDoc.data() : null;
+
+        pendingTutors.push({
+          id: doc.id,
+          ...tutorData,
+          createdAt: tutorData.createdAt?.toDate?.() || tutorData.createdAt,
+          updatedAt: tutorData.updatedAt?.toDate?.() || tutorData.updatedAt,
+          user: {
+            id: tutorData.userId,
+            email: userData?.email || "",
+            firstName: userData?.firstName || "",
+            lastName: userData?.lastName || "",
+            profileImageUrl: userData?.profileImageUrl || null,
+          },
+        });
+      }
+
+      res.json(pendingTutors);
+    } catch (error: any) {
+      console.error("Error fetching pending tutors:", error);
+      res.status(500).json({ message: "Failed to fetch pending tutors", error: error.message });
+    }
+  });
+
+  // Admin approves/rejects tutor
+  app.post("/api/admin/tutors/:tutorId/approve", requireUser, requireAdmin, async (req, res) => {
+    try {
+      const { tutorId } = req.params;
+      const { approved } = req.body; // true or false
+
+      if (typeof approved !== "boolean") {
+        return res.status(400).json({ message: "Invalid approval status" });
+      }
+
+      if (!fdb) {
+        return res.status(500).json({ message: "Firestore not initialized" });
+      }
+
+      const tutorRef = fdb.collection("tutor_profiles").doc(tutorId);
+      const tutorDoc = await tutorRef.get();
+
+      if (!tutorDoc.exists) {
+        return res.status(404).json({ message: "Tutor profile not found" });
+      }
+
+      // Update the tutor profile with approval status
+      await tutorRef.update({
+        isVerified: approved === true,
+        isActive: approved === true,
+        verificationStatus: approved ? "approved" : "rejected",
+        verifiedAt: approved ? now() : null,
+        updatedAt: now(),
+      });
+
+      res.json({
+        message: approved ? "Tutor approved successfully" : "Tutor rejected",
+        success: true,
+        tutorId,
+        approved,
+      });
+    } catch (error: any) {
+      console.error("Error approving tutor:", error);
+      res.status(500).json({ message: "Failed to update tutor status", error: error.message });
     }
   });
 

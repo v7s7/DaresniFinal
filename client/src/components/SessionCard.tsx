@@ -1,3 +1,4 @@
+// client/src/components/SessionCard.tsx
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,20 +9,57 @@ interface SessionCardProps {
   session: any;
   userRole: "student" | "tutor";
   onChat?: () => void;
+  /**
+   * Actions fired by the card:
+   * - "request_cancel"  -> user started a cancel request
+   * - "accept_cancel"   -> user agreed to cancel
+   * - "reject_cancel"   -> user declined the cancel request
+   */
   onAction?: (action: string) => void;
 }
 
+// Safely normalize various date shapes (Date, Firestore Timestamp, string, number)
+function normalizeDate(raw: any): Date {
+  try {
+    if (!raw) return new Date();
+
+    if (raw instanceof Date) {
+      return isNaN(raw.getTime()) ? new Date() : raw;
+    }
+
+    // Firestore Timestamp with toDate()
+    if (typeof raw === "object" && typeof raw.toDate === "function") {
+      const d = raw.toDate();
+      return d instanceof Date && !isNaN(d.getTime()) ? d : new Date();
+    }
+
+    // Firestore Timestamp {_seconds}
+    if (typeof raw === "object" && typeof raw._seconds === "number") {
+      const d = new Date(raw._seconds * 1000);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    if (typeof raw === "string" || typeof raw === "number") {
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    return new Date();
+  } catch {
+    return new Date();
+  }
+}
+
 export function SessionCard({ session, userRole, onChat, onAction }: SessionCardProps) {
-  // --- Normalize date field (prefer scheduledDate; fallback to scheduledAt) ---
-  const scheduled = new Date(session.scheduledDate ?? session.scheduledAt);
+  // Prefer scheduledDate; fallback to scheduledAt
+  const scheduled = normalizeDate(session.scheduledDate ?? session.scheduledAt);
 
-  // --- Normalize status to underscore variant for coloring logic ---
-  // Accepts "in-progress" or "in_progress" and normalizes to "in_progress"
   const rawStatus: string = typeof session.status === "string" ? session.status : "scheduled";
-  const status = rawStatus.replace("-", "_");
+  const status = rawStatus.replace("-", "_"); // "in-progress" -> "in_progress"
 
-  const isUpcoming = scheduled > new Date();
-  const isToday = scheduled.toDateString() === new Date().toDateString();
+  const now = new Date();
+  const isUpcoming = scheduled > now;
+  const isToday = scheduled.toDateString() === now.toDateString();
 
   const otherUser = userRole === "student" ? session.tutor.user : session.student;
   const displayName =
@@ -29,8 +67,13 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
       ? `${session.tutor.user.firstName} ${session.tutor.user.lastName}`
       : `${session.student.firstName} ${session.student.lastName}`;
 
+  const cancelRequestedByTutor = !!session.cancelRequestedByTutor;
+  const cancelRequestedByStudent = !!session.cancelRequestedByStudent;
+
   const getStatusColor = (s: string) => {
     switch (s) {
+      case "pending":
+        return "bg-yellow-100 text-yellow-800";
       case "scheduled":
         return "bg-blue-100 text-blue-800";
       case "in_progress":
@@ -44,15 +87,11 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
     }
   };
 
-  // Allow "Join" if within ±30 minutes of scheduled time today
-  const canJoin =
-    isToday &&
-    status === "scheduled" &&
-    Math.abs(Date.now() - scheduled.getTime()) < 30 * 60 * 1000;
-
-  // Price can be string or number depending on creator; display nicely
+  // Prefer priceCents if present, fallback to price
   const priceValue =
-    session.price !== undefined && session.price !== null
+    session.priceCents != null
+      ? Number(session.priceCents) / 100
+      : session.price != null
       ? Number(session.price)
       : undefined;
 
@@ -68,6 +107,28 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
     if (name.includes("art")) return "fa-palette";
     return "fa-graduation-cap";
   })();
+
+  // ---- Cancel button state logic ----
+  const showRequestCancelButton =
+    status === "scheduled" &&
+    isUpcoming &&
+    !cancelRequestedByTutor &&
+    !cancelRequestedByStudent;
+
+  const tutorShouldRespondToCancel =
+    status === "scheduled" &&
+    cancelRequestedByStudent &&
+    userRole === "tutor";
+
+  const studentShouldRespondToCancel =
+    status === "scheduled" &&
+    cancelRequestedByTutor &&
+    userRole === "student";
+
+  const waitingForOtherSide =
+    status === "scheduled" &&
+    ((cancelRequestedByTutor && userRole === "tutor") ||
+      (cancelRequestedByStudent && userRole === "student"));
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`session-card-${session.id}`}>
@@ -121,6 +182,27 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
                   {session.notes}
                 </p>
               )}
+
+              {/* Cancel request info / status */}
+              {status === "scheduled" && (
+                <div className="mt-3 text-xs">
+                  {tutorShouldRespondToCancel && (
+                    <div className="p-2 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">
+                      Student requested to cancel this session.
+                    </div>
+                  )}
+                  {studentShouldRespondToCancel && (
+                    <div className="p-2 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">
+                      Tutor requested to cancel this session.
+                    </div>
+                  )}
+                  {waitingForOtherSide && (
+                    <div className="p-2 rounded bg-blue-50 border border-blue-200 text-blue-900">
+                      Waiting for the other person to confirm cancellation.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Other User Avatar */}
@@ -133,56 +215,9 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
             </Avatar>
           </div>
 
-          {/* Actions */}
+          {/* Actions: ONLY Chat + Cancel Flow */}
           <div className="flex items-center space-x-2 ml-4">
-            {canJoin && (
-              <Button
-                className="btn-primary"
-                onClick={() => onAction?.("join")}
-                data-testid="button-join-session"
-              >
-                <i className="fas fa-video mr-1" />
-                Join
-              </Button>
-            )}
-
-            {isUpcoming && status === "scheduled" && !canJoin && (
-              <>
-                {userRole === "tutor" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onAction?.("start")}
-                    data-testid="button-start-session"
-                  >
-                    <i className="fas fa-play mr-1" />
-                    Start
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onAction?.("reschedule")}
-                  data-testid="button-reschedule"
-                >
-                  <i className="fas fa-calendar-alt mr-1" />
-                  Reschedule
-                </Button>
-              </>
-            )}
-
-            {status === "completed" && userRole === "student" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onAction?.("review")}
-                data-testid="button-leave-review"
-              >
-                <i className="fas fa-star mr-1" />
-                Review
-              </Button>
-            )}
-
+            {/* Chat always available */}
             <Button
               variant="outline"
               size="sm"
@@ -192,38 +227,45 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
               <i className="fas fa-comment" />
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onAction?.("details")}
-              data-testid="button-details"
-            >
-              <i className="fas fa-info-circle" />
-            </Button>
+            {/* Initial cancel request */}
+            {showRequestCancelButton && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onAction?.("request_cancel")}
+                data-testid="button-request-cancel"
+              >
+                <i className="fas fa-ban mr-1" />
+                Cancel
+              </Button>
+            )}
+
+            {/* Respond to cancel request */}
+            {(tutorShouldRespondToCancel || studentShouldRespondToCancel) && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onAction?.("reject_cancel")}
+                  data-testid="button-keep-session"
+                >
+                  Keep
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onAction?.("accept_cancel")}
+                  data-testid="button-accept-cancel"
+                >
+                  Confirm Cancel
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
-        {/* In-progress quick join */}
-        {status === "in_progress" && session.meetingLink && (
-          <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-blue-800">
-                <i className="fas fa-video mr-2" />
-                Session is live
-              </span>
-              <Button
-                size="sm"
-                onClick={() => window.open(session.meetingLink, "_blank")}
-                data-testid="button-join-meeting"
-              >
-                Join Meeting
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Upcoming reminder */}
-        {isToday && isUpcoming && (
+        {/* Today reminder */}
+        {isToday && isUpcoming && status === "scheduled" && (
           <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
             <div className="flex items-center space-x-2 text-sm text-yellow-800">
               <i className="fas fa-bell" />

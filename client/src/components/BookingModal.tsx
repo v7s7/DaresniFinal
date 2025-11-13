@@ -4,39 +4,55 @@ import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { apiRequest } from "@/lib/queryClient";
-import type { CreateSession } from "@shared/types";
+import type { CreateSession, SessionStatus } from "@shared/types";
+import { AlertCircle } from "lucide-react";
 
 type BookingModalProps = {
-  tutor: any; // { id (tutor_profile id), hourlyRate, subjects, user:{...}, totalReviews?, totalRating? }
+  tutor: any;
   onClose: () => void;
   onConfirm: () => void;
 };
 
-// minimal client-side item used for optimistic cache
-type MinimalSession = CreateSession & {
-  id: string;
-  createdAt?: Date;
-  updatedAt?: Date;
-  tutor?: any; // for student view shape
-  subject?: any; // minimal subject
+type CreateSessionPayload = Omit<CreateSession, "scheduledAt"> & {
+  scheduledAt: string;
 };
 
-async function postSession(payload: CreateSession) {
-  // Use apiRequest so Authorization header is attached
-  return apiRequest("/api/sessions", { method: "POST", body: payload });
-}
-
 type Slot = { start: string; end: string; available: boolean; at: string };
+
+async function postSession(payload: CreateSessionPayload) {
+  try {
+    console.log("📤 Posting session:", payload);
+
+    const response = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "include",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("❌ Server error:", data);
+      throw new Error(data?.message || `Failed to book session (${response.status})`);
+    }
+
+    console.log("✅ Session booked:", data);
+    return data;
+  } catch (error: any) {
+    console.error("❌ Session booking error:", error);
+    throw error;
+  }
+}
 
 export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
   const { user } = useAuth();
@@ -44,164 +60,166 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
   const queryClient = useQueryClient();
 
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [selectedTime, setSelectedTime] = useState<string>("");
-  const [duration, setDuration] = useState<number>(60);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [notes, setNotes] = useState<string>("");
 
-  // Live availability for the chosen date & duration
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
+  // Track which dates have availability
+  const [unavailableDates, setUnavailableDates] = useState<Set<string>>(new Set());
+
   const hourlyRate = Number(tutor?.hourlyRate ?? 15);
+
+  // Calculate duration from selected slots
+  const duration = useMemo(() => {
+    if (selectedSlots.length === 0) return 60;
+    return selectedSlots.length * 60; // each slot is 60 minutes
+  }, [selectedSlots]);
+
   const sessionCost = useMemo(() => hourlyRate * (duration / 60), [hourlyRate, duration]);
   const platformFee = useMemo(() => sessionCost * 0.1, [sessionCost]);
   const totalPrice = useMemo(() => sessionCost + platformFee, [sessionCost, platformFee]);
 
-  // Fetch availability whenever date/duration changes
+  // Fetch availability for selected date
   useEffect(() => {
     async function load() {
       if (!selectedDate || !tutor?.id) return;
+
       try {
         setLoadingSlots(true);
         setSlotsError(null);
+
         const yyyy_mm_dd = selectedDate.toISOString().slice(0, 10);
-        const path = `/api/tutors/${encodeURIComponent(tutor.id)}/availability?date=${yyyy_mm_dd}&step=${duration}`;
-        const res = await apiRequest(path);
-        const serverSlots: Slot[] = Array.isArray(res?.slots) ? res.slots : [];
-        setSlots(serverSlots);
-        // If currently selected time became unavailable, clear it
-        if (selectedTime && !serverSlots.some((s) => s.available && s.start === selectedTime)) {
-          setSelectedTime("");
+        const path = `/api/tutors/${encodeURIComponent(tutor.id)}/availability?date=${yyyy_mm_dd}&step=60`;
+
+        const res = await fetch(path, { credentials: "include" });
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to fetch availability");
         }
+
+        const serverSlots: Slot[] = Array.isArray(data?.slots) ? data.slots : [];
+        setSlots(serverSlots);
+
+        // If this date has no available slots, mark it as unavailable
+        if (serverSlots.length === 0 || serverSlots.every((s) => !s.available)) {
+          setUnavailableDates((prev) => new Set(prev).add(yyyy_mm_dd));
+        }
+
+        // Clear selected slots if they're no longer available
+        setSelectedSlots((prev) =>
+          prev.filter((slot) => serverSlots.some((s) => s.available && s.start === slot)),
+        );
       } catch (e: any) {
+        console.error("❌ Availability fetch error:", e);
         setSlotsError(e?.message || "Failed to load availability");
+        setSlots([]);
       } finally {
         setLoadingSlots(false);
       }
     }
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tutor?.id, selectedDate?.toDateString(), duration]);
+  }, [tutor?.id, selectedDate]);
 
-  // Show only available time labels
-  const availableTimes: string[] = useMemo(
-    () => slots.filter((s) => s.available).map((s) => s.start),
-    [slots]
-  );
+  // Pre-check dates to disable unavailable ones
+  const isDateDisabled = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Disable past dates
+    if (date < today) return true;
+
+    // Check if this date is marked as unavailable
+    const yyyy_mm_dd = date.toISOString().slice(0, 10);
+    return unavailableDates.has(yyyy_mm_dd);
+  };
+
+  // Toggle slot selection
+  const toggleSlot = (slotStart: string) => {
+    setSelectedSlots((prev) => {
+      if (prev.includes(slotStart)) {
+        return prev.filter((s) => s !== slotStart);
+      } else {
+        return [...prev, slotStart].sort();
+      }
+    });
+  };
 
   const m = useMutation({
-    mutationFn: (payload: CreateSession) => postSession(payload),
+    mutationFn: (payload: CreateSessionPayload) => postSession(payload),
 
-    onMutate: async (payload: CreateSession) => {
-      const tempId = `optimistic-${Date.now()}`;
+    onSuccess: (created: any) => {
+      console.log("✅ Booking successful:", created);
 
-      const firstSubject =
-        Array.isArray(tutor?.subjects) && tutor.subjects.length > 0
-          ? (typeof tutor.subjects[0] === "string"
-              ? { id: tutor.subjects[0], name: tutor.subjects[0] }
-              : { id: tutor.subjects[0]?.id, name: tutor.subjects[0]?.name })
-          : undefined;
+      toast({
+        title: "Success",
+        description: "Session request sent to the tutor. It will appear as pending until accepted.",
+        duration: 3000,
+      });
 
-      const optimistic: MinimalSession = {
-        ...payload,
-        id: tempId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        tutor, // keep same nested shape as server response for student
-        subject: firstSubject,
-      };
+      // Refresh tutor & student views
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] }); // TutorDashboard
+      queryClient.invalidateQueries({ queryKey: ["studentSessions"] }); // StudentDashboard
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["my-sessions"] });
 
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: ["sessions"] }),
-        queryClient.cancelQueries({ queryKey: ["my-sessions"] }),
-      ]);
-
-      const prevSessions = queryClient.getQueryData<MinimalSession[] | undefined>(["sessions"]);
-      const prevMySessions = queryClient.getQueryData<MinimalSession[] | undefined>(["my-sessions"]);
-
-      queryClient.setQueryData<MinimalSession[]>(["sessions"], (old) => [optimistic, ...(old ?? [])]);
-      queryClient.setQueryData<MinimalSession[]>(["my-sessions"], (old) => [optimistic, ...(old ?? [])]);
-
-      return { prevSessions, prevMySessions, tempId, optimistic, firstSubject };
+      onConfirm();
     },
 
-    onError: (err: any, _vars, ctx) => {
-      if (ctx?.prevSessions) queryClient.setQueryData(["sessions"], ctx.prevSessions);
-      if (ctx?.prevMySessions) queryClient.setQueryData(["my-sessions"], ctx.prevMySessions);
+    onError: (err: any) => {
+      console.error("❌ Booking mutation error:", err);
       toast({
         title: "Booking failed",
         description: err?.message ?? "Please try again.",
         variant: "destructive",
       });
     },
-
-    onSuccess: (created: any, _vars, ctx) => {
-      if (created && ctx) {
-        const replaceOptimistic = (arr?: MinimalSession[]) =>
-          (arr ?? []).map((s) =>
-            s.id === ctx.tempId
-              ? { ...created, tutor: ctx.optimistic.tutor, subject: ctx.firstSubject ?? ctx.optimistic.subject }
-              : s
-          );
-
-        queryClient.setQueryData<MinimalSession[]>(["sessions"], (old) => replaceOptimistic(old));
-        queryClient.setQueryData<MinimalSession[]>(["my-sessions"], (old) => replaceOptimistic(old));
-      }
-
-      toast({ title: "Success", description: "Session booked successfully!" });
-      onConfirm();
-    },
-
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      queryClient.invalidateQueries({ queryKey: ["my-sessions"] });
-    },
   });
 
   const handleBooking = () => {
     if (!user?.id) {
-      toast({ title: "Sign in required", description: "Please sign in first.", variant: "destructive" });
-      return;
-    }
-    if (!selectedDate || !selectedTime) {
-      toast({ title: "Missing info", description: "Please select a date and time.", variant: "destructive" });
-      return;
-    }
-    // Guard against stale/unavailable slot
-    if (!availableTimes.includes(selectedTime)) {
       toast({
-        title: "Slot unavailable",
-        description: "Please pick another available time.",
+        title: "Sign in required",
+        description: "Please sign in first.",
         variant: "destructive",
       });
       return;
     }
 
-    const [hh, mm] = selectedTime.split(":").map((n) => parseInt(n, 10));
+    if (!selectedDate || selectedSlots.length === 0) {
+      toast({
+        title: "Missing info",
+        description: "Please select at least one time slot.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Use the first selected slot as the start time
+    const firstSlot = [...selectedSlots].sort()[0];
+    const [hh, mm] = firstSlot.split(":").map((n) => parseInt(n, 10));
     const scheduledAt = new Date(selectedDate);
     scheduledAt.setHours(hh, mm, 0, 0);
 
-    // enforce tutor.id (tutor_profile id) because server queries sessions by tutor_profile id
     const tutorProfileId: string = String(tutor?.id || "");
+    const subjectId = tutor?.subjects?.[0]?.id ?? tutor?.subjects?.[0] ?? "general";
 
-    const subjectId =
-      tutor?.subjects?.[0]?.id ??
-      tutor?.subjects?.[0] ??
-      "general";
-
-    const payload: CreateSession = {
+    const payload: CreateSessionPayload = {
       studentId: user.id,
       tutorId: tutorProfileId,
       subjectId,
-      scheduledAt,
+      scheduledAt: scheduledAt.toISOString(),
       duration,
       notes,
       meetingLink: undefined,
       priceCents: Math.round(sessionCost * 100),
-      status: "scheduled",
+      status: "pending" as SessionStatus, // request starts as pending
     };
 
+    console.log("📤 Booking session with payload:", payload);
     m.mutate(payload);
   };
 
@@ -218,7 +236,8 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
             <Avatar className="w-16 h-16">
               <AvatarImage src={tutor?.user?.profileImageUrl ?? ""} alt={tutor?.user?.firstName ?? "Tutor"} />
               <AvatarFallback>
-                {(tutor?.user?.firstName?.[0] ?? "T")}{tutor?.user?.lastName?.[0] ?? ""}
+                {(tutor?.user?.firstName?.[0] ?? "T")}
+                {tutor?.user?.lastName?.[0] ?? ""}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1">
@@ -226,27 +245,14 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                 {tutor?.user?.firstName} {tutor?.user?.lastName}
               </h3>
               <p className="text-muted-foreground">
-                {(tutor?.subjects ?? []).map((s: any) => (typeof s === "string" ? s : s.name)).join(", ")}
+                {(tutor?.subjects ?? [])
+                  .map((s: any) => (typeof s === "string" ? s : s.name))
+                  .join(", ")}
               </p>
               <div className="flex items-center space-x-2 mt-1">
                 <Badge variant="outline" className="bg-primary/10 text-primary">
                   ${hourlyRate}/hour
                 </Badge>
-                <div className="flex items-center space-x-1">
-                  <div className="flex text-yellow-400">
-                    {[...Array(5)].map((_, i) => (
-                      <i
-                        key={i}
-                        className={`fas fa-star text-sm ${
-                          i < Math.floor(Number(tutor?.totalRating ?? 0)) ? "" : "text-gray-300"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    ({tutor?.totalReviews ?? 0} reviews)
-                  </span>
-                </div>
               </div>
             </div>
           </div>
@@ -260,65 +266,62 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                   mode="single"
                   selected={selectedDate}
                   onSelect={setSelectedDate}
-                  disabled={(date) => {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    return date < today; // server already handles weekdays; let tutors choose any day they set available
-                  }}
+                  disabled={isDateDisabled}
                   className="rounded-md border"
                 />
               </div>
+              <p className="text-xs text-muted-foreground mt-2">Unavailable dates are disabled</p>
             </div>
 
-            {/* Time & Duration */}
-            <div className="space-y-4">
-              <div>
-                <Label className="text-base font-medium">Available Times</Label>
-                <div className="mt-2 min-h-[40px]">
-                  {loadingSlots ? (
-                    <div className="text-sm text-muted-foreground">Loading slots…</div>
-                  ) : slotsError ? (
-                    <div className="text-sm text-destructive">{slotsError}</div>
-                  ) : availableTimes.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">No available times for this date.</div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {slots.map((s) => (
-                        <Button
-                          key={s.start}
-                          variant={selectedTime === s.start ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => s.available && setSelectedTime(s.start)}
-                          disabled={!s.available}
-                          data-testid={`button-time-${s.start}`}
-                        >
-                          {s.start}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+            {/* Time Selection */}
+            <div>
+              <Label className="text-base font-medium">
+                Available Times
+                {selectedSlots.length > 0 && (
+                  <span className="ml-2 text-sm text-primary">
+                    ({selectedSlots.length} slot{selectedSlots.length > 1 ? "s" : ""} selected)
+                  </span>
+                )}
+              </Label>
+              <div className="mt-2 min-h-[200px] max-h-[300px] overflow-y-auto">
+                {loadingSlots ? (
+                  <div className="text-sm text-muted-foreground flex items-center justify-center py-8">
+                    <i className="fas fa-spinner fa-spin mr-2" />
+                    Loading slots…
+                  </div>
+                ) : slotsError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{slotsError}</AlertDescription>
+                  </Alert>
+                ) : slots.length === 0 ? (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      No available times for this date. Please select another date.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {slots.map((s) => (
+                      <Button
+                        key={s.start}
+                        variant={selectedSlots.includes(s.start) ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => s.available && toggleSlot(s.start)}
+                        disabled={!s.available}
+                        data-testid={`button-time-${s.start}`}
+                        className={selectedSlots.includes(s.start) ? "bg-primary" : ""}
+                      >
+                        {s.start} - {s.end}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
-
-              <div>
-                <Label htmlFor="duration" className="text-base font-medium">
-                  Duration (minutes)
-                </Label>
-                <Input
-                  id="duration"
-                  type="number"
-                  value={duration}
-                  onChange={(e) => setDuration(parseInt(e.target.value || "60", 10))}
-                  min={30}
-                  max={180}
-                  step={30}
-                  className="mt-2"
-                  data-testid="input-duration"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Slots refresh when you change duration.
-                </p>
-              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 Click multiple slots for longer sessions
+              </p>
             </div>
           </div>
 
@@ -342,17 +345,29 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
           <div className="bg-secondary rounded-lg p-4">
             <h4 className="font-semibold mb-3">Booking Summary</h4>
             <div className="space-y-2 text-sm">
-              {selectedDate && selectedTime && (
-                <div className="flex justify-between">
-                  <span>Date & Time:</span>
-                  <span className="font-medium">
-                    {format(selectedDate, "MMM dd, yyyy")} at {selectedTime}
-                  </span>
-                </div>
+              {selectedDate && selectedSlots.length > 0 && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Date & Time:</span>
+                    <span className="font-medium">
+                      {format(selectedDate, "MMM dd, yyyy")} at {selectedSlots.sort()[0]}
+                    </span>
+                  </div>
+                  {selectedSlots.length > 1 && (
+                    <div className="flex justify-between">
+                      <span>Time Slots:</span>
+                      <span className="font-medium text-xs">
+                        {selectedSlots.sort().join(", ")}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
               <div className="flex justify-between">
                 <span>Duration:</span>
-                <span className="font-medium">{duration} minutes</span>
+                <span className="font-medium">
+                  {duration} minutes ({duration / 60} hour{duration > 60 ? "s" : ""})
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Hourly Rate:</span>
@@ -375,12 +390,17 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
 
           {/* Actions */}
           <div className="flex space-x-3">
-            <Button variant="outline" onClick={onClose} className="flex-1" data-testid="button-cancel">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="flex-1"
+              data-testid="button-cancel"
+            >
               Cancel
             </Button>
             <Button
               onClick={handleBooking}
-              disabled={m.isPending || !selectedDate || !selectedTime}
+              disabled={m.isPending || !selectedDate || selectedSlots.length === 0}
               className="flex-1 btn-primary"
               data-testid="button-confirm-booking"
             >
@@ -392,7 +412,7 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
               ) : (
                 <>
                   <i className="fas fa-credit-card mr-2" />
-                  Confirm & Pay
+                  Confirm & Pay ${totalPrice.toFixed(2)}
                 </>
               )}
             </Button>

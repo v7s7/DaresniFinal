@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -14,6 +16,8 @@ import { SessionCard } from "@/components/SessionCard";
 import { ChatWindow } from "@/components/ChatWindow";
 import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
+import { Calendar, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { format } from "date-fns";
 
 /** ---------- helpers ---------- */
 type DayAvailability = { isAvailable: boolean; startTime: string; endTime: string };
@@ -33,6 +37,36 @@ const emptyWeek = (): Record<string, DayAvailability> =>
     acc[d.key] = { isAvailable: false, startTime: "09:00", endTime: "17:00" };
     return acc;
   }, {} as Record<string, DayAvailability>);
+
+/** Normalize Firestore Timestamp / string / number / Date into Date */
+function toDate(value: any): Date | null {
+  try {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+
+    if (typeof value === "string" || typeof value === "number") {
+      const d = new Date(value);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    if (typeof value === "object") {
+      // Firestore Timestamp with .toDate()
+      if (typeof (value as any).toDate === "function") {
+        const d = (value as any).toDate();
+        return d instanceof Date && !isNaN(d.getTime()) ? d : null;
+      }
+      // Serialized Timestamp {_seconds, _nanoseconds}
+      if (typeof (value as any)._seconds === "number") {
+        const d = new Date((value as any)._seconds * 1000);
+        return isNaN(d.getTime()) ? null : d;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Robust approval normalizer (matches PendingApproval logic) */
 function normBoolLike(v: any): boolean {
@@ -57,6 +91,12 @@ function isTutorApproved(profile: any): boolean {
   return false;
 }
 
+function formatDate(timestamp: any) {
+  const date = toDate(timestamp);
+  if (!date) return "TBD";
+  return format(date, "MMM dd, yyyy 'at' h:mm a");
+}
+
 export default function TutorDashboard() {
   const { user, isLoading } = useAuth();
   const { toast } = useToast();
@@ -66,6 +106,7 @@ export default function TutorDashboard() {
   const [showChat, setShowChat] = useState(false);
   const [chatUserId, setChatUserId] = useState<string | null>(null);
   const [previousSessionCount, setPreviousSessionCount] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<string>("pending");
 
   // Availability dialog state
   const [showAvailability, setShowAvailability] = useState(false);
@@ -74,7 +115,11 @@ export default function TutorDashboard() {
   // redirect unauthenticated
   useEffect(() => {
     if (!isLoading && !user) {
-      toast({ title: "Unauthorized", description: "You are logged out. Redirecting…", variant: "destructive" });
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Redirecting…",
+        variant: "destructive",
+      });
       setTimeout(() => {
         window.location.href = "/api/login";
       }, 500);
@@ -127,9 +172,17 @@ export default function TutorDashboard() {
         method: "PUT",
         body: JSON.stringify({ status }),
       }),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
-      toast({ title: "Success", description: "Session updated successfully" });
+      toast({
+        title: "Success",
+        description:
+          variables.status === "scheduled"
+            ? "Session accepted successfully"
+            : variables.status === "cancelled"
+            ? "Session declined"
+            : "Session updated successfully",
+      });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -172,17 +225,36 @@ export default function TutorDashboard() {
     }
   }, [tutorProfile]);
 
-  /** Derived data */
+  /** Derived data - Categorize sessions */
+  const pendingSessions = useMemo(
+    () => {
+      const now = new Date();
+      return (Array.isArray(sessions) ? sessions : []).filter((s: any) => {
+        const dt = toDate(s.scheduledAt);
+        return s.status === "pending" && dt && dt > now;
+      });
+    },
+    [sessions],
+  );
+
   const upcomingSessions = useMemo(
-    () =>
-      (Array.isArray(sessions) ? sessions : []).filter(
-        (s: any) => new Date(s.scheduledAt) > new Date() && s.status === "scheduled",
-      ),
+    () => {
+      const now = new Date();
+      return (Array.isArray(sessions) ? sessions : []).filter((s: any) => {
+        const dt = toDate(s.scheduledAt);
+        return s.status === "scheduled" && dt && dt > now;
+      });
+    },
     [sessions],
   );
 
   const completedSessions = useMemo(
     () => (Array.isArray(sessions) ? sessions : []).filter((s: any) => s.status === "completed"),
+    [sessions],
+  );
+
+  const cancelledSessions = useMemo(
+    () => (Array.isArray(sessions) ? sessions : []).filter((s: any) => s.status === "cancelled"),
     [sessions],
   );
 
@@ -219,6 +291,85 @@ export default function TutorDashboard() {
     updateSessionMutation.mutate({ sessionId, status });
   };
 
+  const handleAccept = (sessionId: string) => {
+    updateSessionMutation.mutate({ sessionId, status: "scheduled" });
+  };
+
+  const handleReject = (sessionId: string) => {
+    updateSessionMutation.mutate({ sessionId, status: "cancelled" });
+  };
+
+  /** Pending Session Card Component */
+  const PendingSessionCard = ({ session }: { session: any }) => (
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-start gap-4">
+          <Avatar className="h-12 w-12">
+            <AvatarImage src={session.student?.profileImageUrl} />
+            <AvatarFallback>
+              {session.student?.firstName?.[0]}
+              {session.student?.lastName?.[0]}
+            </AvatarFallback>
+          </Avatar>
+
+          <div className="flex-1">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-semibold">
+                  {session.student?.firstName} {session.student?.lastName}
+                </h3>
+                <p className="text-sm text-muted-foreground">{session.student?.email}</p>
+              </div>
+              <Badge variant="secondary">Pending</Badge>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span>{formatDate(session.scheduledAt)}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span>{session.duration} minutes</span>
+              </div>
+              {session.subject && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge variant="outline">{session.subject.name}</Badge>
+                </div>
+              )}
+              {session.notes && (
+                <div className="mt-2 p-3 bg-muted rounded-md">
+                  <p className="text-sm font-medium">Student Notes:</p>
+                  <p className="text-sm text-muted-foreground">{session.notes}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <Button
+                onClick={() => handleAccept(session.id)}
+                disabled={updateSessionMutation.isPending}
+                className="flex-1"
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Accept
+              </Button>
+              <Button
+                onClick={() => handleReject(session.id)}
+                disabled={updateSessionMutation.isPending}
+                variant="outline"
+                className="flex-1"
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                Decline
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   /** Guards */
   if (isLoading || !user) {
     return (
@@ -252,6 +403,14 @@ export default function TutorDashboard() {
             <div className="grid md:grid-cols-4 gap-4">
               <Card>
                 <CardContent className="p-6 text-center">
+                  <div className="text-2xl font-bold text-primary" data-testid="text-pending-sessions">
+                    {pendingSessions.length}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Pending Requests</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-6 text-center">
                   <div className="text-2xl font-bold text-primary" data-testid="text-upcoming-sessions">
                     {upcomingSessions.length}
                   </div>
@@ -274,52 +433,122 @@ export default function TutorDashboard() {
                   <div className="text-sm text-muted-foreground">Total Earnings</div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-6 text-center">
-                  <div className="text-2xl font-bold text-primary" data-testid="text-average-rating">
-                    {(0).toFixed(1)}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Average Rating</div>
-                </CardContent>
-              </Card>
             </div>
 
-            {/* Upcoming Sessions */}
+            {/* Sessions Tabs */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <i className="fas fa-calendar-alt mr-2 text-primary"></i>
-                  Upcoming Sessions
+                  Sessions
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {sessionsLoading ? (
-                  <div className="space-y-4">
-                    {[...Array(3)].map((_, i) => (
-                      <div key={i} className="animate-pulse">
-                        <div className="h-20 bg-muted rounded"></div>
+                <Tabs value={activeTab} onValueChange={setActiveTab}>
+                  <TabsList className="grid grid-cols-4 w-full">
+                    <TabsTrigger value="pending">
+                      Pending
+                      {pendingSessions.length > 0 && (
+                        <Badge variant="destructive" className="ml-2">
+                          {pendingSessions.length}
+                        </Badge>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+                    <TabsTrigger value="completed">Completed</TabsTrigger>
+                    <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="pending" className="space-y-4 mt-4">
+                    {sessionsLoading ? (
+                      <div className="space-y-4">
+                        {[...Array(3)].map((_, i) => (
+                          <div key={i} className="animate-pulse">
+                            <div className="h-32 bg-muted rounded"></div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                ) : upcomingSessions.length > 0 ? (
-                  <div className="space-y-4">
-                    {upcomingSessions.map((session: any) => (
-                      <SessionCard
-                        key={session.id}
-                        session={session}
-                        userRole="tutor"
-                        onChat={() => handleStartChat(session.studentId)}
-                        onAction={(action) => handleSessionAction(session.id, action)}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <i className="fas fa-calendar-times text-4xl mb-4"></i>
-                    <p>No upcoming sessions</p>
-                    <p className="text-sm mt-2">Students will book sessions with you directly</p>
-                  </div>
-                )}
+                    ) : pendingSessions.length === 0 ? (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="font-medium">No pending requests</p>
+                        <p className="text-sm mt-2">New session requests will appear here</p>
+                      </div>
+                    ) : (
+                      pendingSessions.map((session: any) => (
+                        <PendingSessionCard key={session.id} session={session} />
+                      ))
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="upcoming" className="space-y-4 mt-4">
+                    {sessionsLoading ? (
+                      <div className="space-y-4">
+                        {[...Array(3)].map((_, i) => (
+                          <div key={i} className="animate-pulse">
+                            <div className="h-20 bg-muted rounded"></div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : upcomingSessions.length > 0 ? (
+                      upcomingSessions.map((session: any) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          userRole="tutor"
+                          onChat={() => handleStartChat(session.studentId)}
+                          onAction={(action) => handleSessionAction(session.id, action)}
+                        />
+                      ))
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="font-medium">No upcoming sessions</p>
+                        <p className="text-sm mt-2">Accepted sessions will appear here</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="completed" className="space-y-4 mt-4">
+                    {completedSessions.length > 0 ? (
+                      completedSessions.map((session: any) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          userRole="tutor"
+                          onChat={() => handleStartChat(session.studentId)}
+                          onAction={(action) => handleSessionAction(session.id, action)}
+                        />
+                      ))
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <CheckCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="font-medium">No completed sessions yet</p>
+                        <p className="text-sm mt-2">Completed sessions will appear here</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="cancelled" className="space-y-4 mt-4">
+                    {cancelledSessions.length > 0 ? (
+                      cancelledSessions.map((session: any) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          userRole="tutor"
+                          onChat={() => handleStartChat(session.studentId)}
+                          onAction={(action) => handleSessionAction(session.id, action)}
+                        />
+                      ))
+                    ) : (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <XCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <p className="font-medium">No cancelled sessions</p>
+                        <p className="text-sm mt-2">Declined sessions will appear here</p>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </div>
@@ -416,17 +645,20 @@ export default function TutorDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2 text-sm">
-                  {upcomingSessions.slice(0, 5).map((session: any) => (
-                    <div key={session.id} className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-primary rounded-full"></div>
-                      <div className="flex-1">
-                        <div className="font-medium">{session.subject.name}</div>
-                        <div className="text-muted-foreground">
-                          {new Date(session.scheduledAt).toLocaleDateString()}
+                  {upcomingSessions.slice(0, 5).map((session: any) => {
+                    const dt = toDate(session.scheduledAt);
+                    return (
+                      <div key={session.id} className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-primary rounded-full"></div>
+                        <div className="flex-1">
+                          <div className="font-medium">{session.subject.name}</div>
+                          <div className="text-muted-foreground">
+                            {dt ? dt.toLocaleDateString() : "TBD"}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {upcomingSessions.length === 0 && (
                     <div className="text-center text-muted-foreground py-4">
                       <i className="fas fa-calendar-check text-2xl mb-2"></i>
