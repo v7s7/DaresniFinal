@@ -11,5 +11,5 @@ vite.config.ts.*
 uploads/
 node_modules/
 dist/
-build/
-
+build/server/serviceaccount.json 
+server/serviceaccount.json 
