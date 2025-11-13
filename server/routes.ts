@@ -49,11 +49,12 @@ const insertFavoriteSchema = z.object({
 });
 
 const insertSessionSchema = z.object({
-  tutorId: z.string(), // tutor_profiles.id
+  tutorId: z.string(), // can be tutor_profiles.id OR the tutor's userId (handled below)
   subjectId: z.string(),
   studentId: z.string(),
   scheduledAt: z.union([z.string(), z.date()]),
-  duration: z.number().int().positive().optional(),
+  duration: z.number().int().positive().optional(), // minutes
+  durationMinutes: z.number().int().positive().optional(), // also accepted
   status: z.enum(["scheduled", "in_progress", "completed", "cancelled"]).optional(),
 });
 
@@ -172,6 +173,32 @@ function* generateSlots(startHHmm: string, endHHmm: string, stepMinutes = 60) {
 }
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && bStart < aEnd;
+}
+
+// helpers for YYYY-MM-DD → Date(00:00 local)
+function parseYMD(s: string): Date {
+  const [y, m, d] = s.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date();
+  dt.setFullYear(isNaN(y) ? dt.getFullYear() : y);
+  dt.setMonth(isNaN(m) ? dt.getMonth() : m - 1, isNaN(d) ? dt.getDate() : d);
+  dt.setHours(0, 0, 0, 0);
+  return dt;
+}
+function parseDateParam(s?: string): Date {
+  if (!s) {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return parseYMD(s);
+  const d = new Date(s);
+  if (isNaN(d.getTime())) {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  }
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -591,14 +618,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/tutors/:id/availability", async (req, res) => {
     try {
       const tutorProfileId = req.params.id;
-      const dateParam = (req.query.date as string) || new Date().toISOString().slice(0, 10);
-      const step = Math.max(15, Math.min(180, Number(req.query.step ?? 60))); // 15–180 minutes
 
-      const day = new Date(`${dateParam}T00:00:00`);
-      if (isNaN(day.getTime())) return res.status(400).json({ error: "Invalid date" });
-
-      const profile = await getDoc<any>("tutor_profiles", tutorProfileId);
+      let profile = await getDoc<any>("tutor_profiles", tutorProfileId);
+      if (!profile) {
+        const byUser = await fdb!
+          .collection("tutor_profiles")
+          .where("userId", "==", tutorProfileId)
+          .limit(1)
+          .get();
+        if (!byUser.empty) {
+          profile = { id: byUser.docs[0].id, ...byUser.docs[0].data() } as any;
+        }
+      }
       if (!profile) return res.status(404).json({ error: "Tutor not found" });
+
+      // NEW: parse date & step
+      const dateStr = String(req.query.date ?? "");
+      const day = parseDateParam(dateStr); // local midnight
+      const step = Math.max(15, Math.min(240, parseInt(String(req.query.step ?? "60"), 10) || 60));
 
       const key = toDayKey(day);
       const dayAvail = profile.availability?.[key];
@@ -610,15 +647,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // fetch booked sessions for that day
       const sDay = startOfDay(day);
       const eDay = endOfDay(day);
+
+      // Avoid composite-index requirement: query by scheduledAt range, then filter tutorId in memory
       const bookedSnap = await fdb!
         .collection("tutoring_sessions")
-        .where("tutorId", "==", tutorProfileId)
         .where("scheduledAt", ">=", sDay)
         .where("scheduledAt", "<=", eDay)
         .get();
 
       const booked = bookedSnap.docs
         .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((s) => s.tutorId === profile.id) // keep only this tutor
         .filter((s) => (s.status || "scheduled") !== "cancelled");
 
       const slots: Array<{ start: string; end: string; available: boolean; at: string }> = [];
@@ -1030,49 +1069,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only students can book sessions", fieldErrors: {} });
       }
 
+      // Parse and normalize inputs
       const body = insertSessionSchema.parse({
         ...req.body,
         studentId: user.id,
         status: "scheduled",
       });
 
-      const scheduledAt =
-        body.scheduledAt instanceof Date ? body.scheduledAt : new Date(body.scheduledAt);
-      if (isNaN(scheduledAt.getTime()))
+      // scheduledAt -> Date
+      const sesStart =
+        body.scheduledAt instanceof Date ? body.scheduledAt : new Date(body.scheduledAt as string);
+      if (isNaN(sesStart.getTime())) {
         return res.status(400).json({ message: "Invalid scheduledAt", fieldErrors: {} });
+      }
 
-      const duration = Number(body.duration ?? 60); // minutes
-      const tutorProfile = await getDoc<any>("tutor_profiles", body.tutorId);
-      if (!tutorProfile)
+      // duration -> minutes (support durationMinutes too)
+      const duration = Number(
+        body.duration ?? (req.body?.durationMinutes ?? body.durationMinutes) ?? 60
+      );
+      const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
+
+      // Resolve tutor profile whether client sent profileId OR userId
+      let tutorProfile = await getDoc<any>("tutor_profiles", body.tutorId);
+      if (!tutorProfile) {
+        const byUser = await fdb!
+          .collection("tutor_profiles")
+          .where("userId", "==", body.tutorId)
+          .limit(1)
+          .get();
+        if (!byUser.empty) {
+          tutorProfile = { id: byUser.docs[0].id, ...byUser.docs[0].data() } as any;
+        }
+      }
+      if (!tutorProfile) {
         return res.status(404).json({ message: "Tutor profile not found", fieldErrors: {} });
+      }
+      const resolvedTutorId = tutorProfile.id as string;
 
-      // 1) Ensure day is available
-      const key = toDayKey(scheduledAt);
+      // 1) Day availability window
+      const key = toDayKey(sesStart);
       const dayAvail = tutorProfile.availability?.[key];
       if (!dayAvail || !dayAvail.isAvailable) {
         return res.status(409).json({ message: "Tutor not available this day", fieldErrors: {} });
       }
-
       const { h: sh, m: sm } = parseHHMM(dayAvail.startTime, "09:00");
       const { h: eh, m: em } = parseHHMM(dayAvail.endTime, "17:00");
-      const dayStart = new Date(scheduledAt);
-      dayStart.setHours(sh, sm, 0, 0);
-      const dayEnd = new Date(scheduledAt);
-      dayEnd.setHours(eh, em, 0, 0);
 
-      const sesStart = scheduledAt;
-      const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
+      const dayStart = new Date(sesStart);
+      dayStart.setHours(sh, sm, 0, 0);
+      const dayEnd = new Date(sesStart);
+      dayEnd.setHours(eh, em, 0, 0);
 
       if (!(sesStart >= dayStart && sesEnd <= dayEnd)) {
         return res.status(409).json({ message: "Outside tutor availability window", fieldErrors: {} });
       }
 
-      // 2) Prevent double booking (overlap with existing sessions on same day)
-      const sDay = startOfDay(scheduledAt);
-      const eDay = endOfDay(scheduledAt);
+      // 2) Conflict check (tutor side, same day)
+      const sDay = startOfDay(sesStart);
+      const eDay = endOfDay(sesStart);
       const bookedSnap = await fdb!
         .collection("tutoring_sessions")
-        .where("tutorId", "==", body.tutorId)
+        .where("tutorId", "==", resolvedTutorId)
         .where("scheduledAt", ">=", sDay)
         .where("scheduledAt", "<=", eDay)
         .get();
@@ -1087,16 +1144,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // 3) Create session
+      // 3) Create session (store the resolved tutor_profile id)
       const docRef = await fdb!.collection("tutoring_sessions").add({
-        ...body,
-        scheduledAt: sesStart,
+        tutorId: resolvedTutorId,
+        studentId: user.id,
+        subjectId: body.subjectId,
+        scheduledAt: sesStart, // Admin SDK will store as Timestamp
         duration,
+        status: "scheduled",
         createdAt: now(),
         updatedAt: now(),
       });
 
-      // 4) Notify tutor
+      // 4) Notify tutor (their user account)
       const tutorUserId = tutorProfile.userId;
       const studentName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "A student";
       if (tutorUserId) {
@@ -1104,9 +1164,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           type: "SESSION_REQUESTED",
           title: "New session request",
           body: `${studentName} requested a session on ${sesStart.toLocaleString()}`,
-          userId: tutorUserId, // personal notification target
+          userId: tutorUserId,
           audience: "user",
-          data: { sessionId: docRef.id, tutorId: body.tutorId, studentId: user.id, subjectId: body.subjectId },
+          data: { sessionId: docRef.id, tutorId: resolvedTutorId, studentId: user.id, subjectId: body.subjectId },
           isRead: false,
           createdAt: now(),
         });

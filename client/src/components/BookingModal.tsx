@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 
@@ -13,10 +13,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { apiRequest } from "@/lib/queryClient";
 import type { CreateSession } from "@shared/types";
 
 type BookingModalProps = {
-  tutor: any;  // { id (tutor_profile id), hourlyRate, subjects, user:{...}, totalReviews?, totalRating? }
+  tutor: any; // { id (tutor_profile id), hourlyRate, subjects, user:{...}, totalReviews?, totalRating? }
   onClose: () => void;
   onConfirm: () => void;
 };
@@ -26,22 +27,16 @@ type MinimalSession = CreateSession & {
   id: string;
   createdAt?: Date;
   updatedAt?: Date;
-  tutor?: any;    // for student view shape
-  subject?: any;  // minimal subject
+  tutor?: any; // for student view shape
+  subject?: any; // minimal subject
 };
 
 async function postSession(payload: CreateSession) {
-  const res = await fetch("/api/sessions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err?.message || `Failed to create session (${res.status})`);
-  }
-  return res.json(); // { id, ...session }
+  // Use apiRequest so Authorization header is attached
+  return apiRequest("/api/sessions", { method: "POST", body: payload });
 }
+
+type Slot = { start: string; end: string; available: boolean; at: string };
 
 export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
   const { user } = useAuth();
@@ -53,12 +48,47 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
   const [duration, setDuration] = useState<number>(60);
   const [notes, setNotes] = useState<string>("");
 
-  const availableTimes = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
+  // Live availability for the chosen date & duration
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
 
   const hourlyRate = Number(tutor?.hourlyRate ?? 15);
-  const sessionCost = hourlyRate * (duration / 60);
-  const platformFee = sessionCost * 0.1;
-  const totalPrice = sessionCost + platformFee;
+  const sessionCost = useMemo(() => hourlyRate * (duration / 60), [hourlyRate, duration]);
+  const platformFee = useMemo(() => sessionCost * 0.1, [sessionCost]);
+  const totalPrice = useMemo(() => sessionCost + platformFee, [sessionCost, platformFee]);
+
+  // Fetch availability whenever date/duration changes
+  useEffect(() => {
+    async function load() {
+      if (!selectedDate || !tutor?.id) return;
+      try {
+        setLoadingSlots(true);
+        setSlotsError(null);
+        const yyyy_mm_dd = selectedDate.toISOString().slice(0, 10);
+        const path = `/api/tutors/${encodeURIComponent(tutor.id)}/availability?date=${yyyy_mm_dd}&step=${duration}`;
+        const res = await apiRequest(path);
+        const serverSlots: Slot[] = Array.isArray(res?.slots) ? res.slots : [];
+        setSlots(serverSlots);
+        // If currently selected time became unavailable, clear it
+        if (selectedTime && !serverSlots.some((s) => s.available && s.start === selectedTime)) {
+          setSelectedTime("");
+        }
+      } catch (e: any) {
+        setSlotsError(e?.message || "Failed to load availability");
+      } finally {
+        setLoadingSlots(false);
+      }
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tutor?.id, selectedDate?.toDateString(), duration]);
+
+  // Show only available time labels
+  const availableTimes: string[] = useMemo(
+    () => slots.filter((s) => s.available).map((s) => s.start),
+    [slots]
+  );
 
   const m = useMutation({
     mutationFn: (payload: CreateSession) => postSession(payload),
@@ -78,7 +108,7 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
         id: tempId,
         createdAt: new Date(),
         updatedAt: new Date(),
-        tutor,                 // keep same nested shape as server response for student
+        tutor, // keep same nested shape as server response for student
         subject: firstSubject,
       };
 
@@ -136,6 +166,15 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
     }
     if (!selectedDate || !selectedTime) {
       toast({ title: "Missing info", description: "Please select a date and time.", variant: "destructive" });
+      return;
+    }
+    // Guard against stale/unavailable slot
+    if (!availableTimes.includes(selectedTime)) {
+      toast({
+        title: "Slot unavailable",
+        description: "Please pick another available time.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -224,7 +263,7 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                   disabled={(date) => {
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    return date < today || date.getDay() === 0;
+                    return date < today; // server already handles weekdays; let tutors choose any day they set available
                   }}
                   className="rounded-md border"
                 />
@@ -235,18 +274,29 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
             <div className="space-y-4">
               <div>
                 <Label className="text-base font-medium">Available Times</Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {availableTimes.map((time) => (
-                    <Button
-                      key={time}
-                      variant={selectedTime === time ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectedTime(time)}
-                      data-testid={`button-time-${time}`}
-                    >
-                      {time}
-                    </Button>
-                  ))}
+                <div className="mt-2 min-h-[40px]">
+                  {loadingSlots ? (
+                    <div className="text-sm text-muted-foreground">Loading slots…</div>
+                  ) : slotsError ? (
+                    <div className="text-sm text-destructive">{slotsError}</div>
+                  ) : availableTimes.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No available times for this date.</div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {slots.map((s) => (
+                        <Button
+                          key={s.start}
+                          variant={selectedTime === s.start ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => s.available && setSelectedTime(s.start)}
+                          disabled={!s.available}
+                          data-testid={`button-time-${s.start}`}
+                        >
+                          {s.start}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -265,6 +315,9 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                   className="mt-2"
                   data-testid="input-duration"
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Slots refresh when you change duration.
+                </p>
               </div>
             </div>
           </div>
