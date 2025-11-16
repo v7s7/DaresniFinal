@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type TutorCardProps = {
-  tutor: any; // expects { id, user, hourlyRate, subjects, totalRating?, totalReviews?, isVerified?, isActive?, bio?, experience? }
+  tutor: any; // expects { id, user, hourlyRate, subjects, averageRating?, reviewCount?, totalRating?, totalReviews?, isVerified?, isActive?, bio?, experience? }
   onBook: () => void;
   onViewProfile: () => void;
   onFavorite: () => void;
@@ -19,8 +19,25 @@ export function TutorCard({
   isFavorite = false,
 }: TutorCardProps) {
   const hourlyRate = Number(tutor?.hourlyRate ?? 0);
-  const averageRating = Number(tutor?.totalRating ?? tutor?.rating ?? 0);
-  const totalReviews = Number(tutor?.totalReviews ?? 0);
+
+  // Be flexible with backend field names
+  const rawAverageRating =
+    tutor?.averageRating ??
+    tutor?.avgRating ??
+    tutor?.rating ??
+    tutor?.totalRating ??
+    0;
+
+  const rawTotalReviews =
+    tutor?.reviewCount ??
+    tutor?.reviewsCount ??
+    tutor?.totalReviews ??
+    tutor?.ratingCount ??
+    0;
+
+  const averageRating = Number(rawAverageRating) || 0;
+  const totalReviews = Number(rawTotalReviews) || 0;
+
   const isActive = Boolean(tutor?.isActive ?? true);
   const isVerified = Boolean(tutor?.isVerified ?? false);
 
@@ -39,7 +56,7 @@ export function TutorCard({
   const lastName = tutor?.user?.lastName ?? "";
   const profileImageUrl = tutor?.user?.profileImageUrl ?? "";
 
-  const hasReviews = totalReviews > 0;
+  const hasReviews = totalReviews > 0 && averageRating > 0;
 
   return (
     <Card className="card-hover h-full" data-testid={`tutor-card-${tutor?.id ?? "unknown"}`}>
@@ -70,7 +87,7 @@ export function TutorCard({
                   <i
                     key={i}
                     className={`fas fa-star text-sm ${
-                      i < Math.floor(averageRating) ? "" : "text-gray-300"
+                      i < Math.round(averageRating) ? "" : "text-gray-300"
                     }`}
                   />
                 ))}
@@ -80,7 +97,9 @@ export function TutorCard({
                 data-testid="text-rating"
               >
                 {hasReviews
-                  ? `${averageRating.toFixed(1)} (${totalReviews} reviews)`
+                  ? `${averageRating.toFixed(1)} (${totalReviews} review${
+                      totalReviews === 1 ? "" : "s"
+                    })`
                   : "No reviews yet"}
               </span>
             </div>

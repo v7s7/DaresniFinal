@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import multer from "multer";
+import type * as FirebaseFirestore from "@google-cloud/firestore";
+
 import { requireUser, requireAdmin, type AuthUser, fdb } from "./firebase-admin";
 import { z } from "zod";
 import { sendToAdmins, createTutorRegistrationEmail } from "./email";
@@ -57,6 +59,12 @@ const insertSessionSchema = z.object({
   status: z
     .enum(["pending", "scheduled", "in_progress", "completed", "cancelled"])
     .optional(),
+});
+
+const createReviewSchema = z.object({
+  tutorId: z.string(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(2000).optional(),
 });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -276,6 +284,64 @@ async function fetchSessionsForUser(user: AuthUser, limit: number): Promise<any[
   });
 
   return formatted;
+}
+async function autoCompleteSessions(cutoff: Date): Promise<{
+  checked: number;
+  completed: number;
+}> {
+  if (!fdb) throw new Error("Firestore not initialized");
+
+  const col = fdb.collection("tutoring_sessions");
+
+  // To avoid composite index issues, query each status separately
+  const [scheduledSnap, inProgressSnap] = await Promise.all([
+    col.where("status", "==", "scheduled").where("scheduledAt", "<=", cutoff).get(),
+    col.where("status", "==", "in_progress").where("scheduledAt", "<=", cutoff).get(),
+  ]);
+
+  const docs = [...scheduledSnap.docs, ...inProgressSnap.docs];
+
+  let checked = 0;
+  let completed = 0;
+
+  let batch = fdb.batch();
+  let ops = 0;
+
+  for (const d of docs) {
+    const data = d.data() as any;
+    checked++;
+
+    const start = new Date(coerceMillis(data.scheduledAt));
+    const durationMinutes = Number(data.duration ?? 60);
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+
+    // Only auto-complete if the calculated end time has actually passed
+    if (end <= cutoff) {
+      batch.update(d.ref, {
+        status: "completed",
+        updatedAt: now(),
+      });
+      completed++;
+      ops++;
+
+      // Commit in chunks to respect batch limits
+      if (ops >= 400) {
+        await batch.commit();
+        batch = fdb.batch();
+        ops = 0;
+      }
+    }
+  }
+
+  if (ops > 0) {
+    await batch.commit();
+  }
+
+  console.log(
+    `autoCompleteSessions: checked=${checked}, completed=${completed}, cutoff=${cutoff.toISOString()}`
+  );
+
+  return { checked, completed };
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -505,7 +571,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           category: "STEM",
         },
         { id: "science", name: "Science", description: "Biology, chemistry, and physics", category: "STEM" },
-        { id: "english", name: "English", description: "Language arts, writing, and literature", category: "Language Arts" },
+        {
+          id: "english",
+          name: "English",
+          description: "Language arts, writing, and literature",
+          category: "Language Arts",
+        },
         { id: "history", name: "History", description: "World history, social studies", category: "Social Studies" },
         { id: "computer-science", name: "Computer Science", description: "Programming and CS concepts", category: "STEM" },
       ];
@@ -1028,66 +1099,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // === TUTORS LISTING (with subjects) ===
-  app.get("/api/tutors", async (_req, res) => {
-    try {
-      const profs = await listCollection<any>("tutor_profiles", [
-        ["isActive", "==", true],
-        ["isVerified", "==", true],
-      ]);
+// === TUTORS LISTING (with subjects + reviews) ===
+app.get("/api/tutors", async (_req, res) => {
+  try {
+    const profs = await listCollection<any>("tutor_profiles", [
+      ["isActive", "==", true],
+      ["isVerified", "==", true],
+    ]);
 
-      if (profs.length === 0) return res.json([]);
+    if (profs.length === 0) return res.json([]);
 
-      const userIds = profs.map((p) => p.userId).filter(Boolean);
-      const tutorIds = profs.map((p) => p.id);
+    const userIds = profs.map((p) => p.userId).filter(Boolean);
+    const tutorIds = profs.map((p) => p.id);
 
-      const [mapUsers, tsDocs] = await Promise.all([
-        batchLoadMap<any>("users", userIds),
-        (async () => {
-          // fetch tutor_subjects in chunks of 10 for 'in' constraint
-          const chunks: string[][] = [];
-          for (let i = 0; i < tutorIds.length; i += 10) chunks.push(tutorIds.slice(i, i + 10));
-          const acc: FirebaseFirestore.QueryDocumentSnapshot[] = [];
-          for (const chunk of chunks) {
-            const snap = await fdb!.collection("tutor_subjects").where("tutorId", "in", chunk).get();
-            acc.push(...snap.docs);
-          }
-          return acc;
-        })(),
-      ]);
+    // Load users and tutor_subjects
+    const [mapUsers, tsDocs] = await Promise.all([
+      batchLoadMap<any>("users", userIds),
+      (async () => {
+        // fetch tutor_subjects in chunks of 10 for 'in' constraint
+        const chunks: string[][] = [];
+        for (let i = 0; i < tutorIds.length; i += 10) {
+          chunks.push(tutorIds.slice(i, i + 10));
+        }
+        const acc: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+        for (const chunk of chunks) {
+          const snap = await fdb!
+            .collection("tutor_subjects")
+            .where("tutorId", "in", chunk)
+            .get();
+          acc.push(...snap.docs);
+        }
+        return acc;
+      })(),
+    ]);
 
-      const byTutor = new Map<string, string[]>();
-      for (const d of tsDocs) {
-        const tId = d.get("tutorId") as string;
-        const sId = d.get("subjectId") as string;
-        if (!byTutor.has(tId)) byTutor.set(tId, []);
-        byTutor.get(tId)!.push(sId);
+    // Map tutor -> subject ids
+    const byTutor = new Map<string, string[]>();
+    for (const d of tsDocs) {
+      const tId = d.get("tutorId") as string;
+      const sId = d.get("subjectId") as string;
+      if (!byTutor.has(tId)) byTutor.set(tId, []);
+      byTutor.get(tId)!.push(sId);
+    }
+
+    const subjectIds = Array.from(
+      new Set(tsDocs.map((d) => d.get("subjectId") as string).filter(Boolean))
+    );
+    const mapSubjects = await batchLoadMap<any>("subjects", subjectIds);
+
+    // ---- NEW: load reviews and compute average + count per tutor ----
+    const ratingStats = new Map<string, { sum: number; count: number }>();
+
+    if (tutorIds.length > 0) {
+      const reviewChunks: string[][] = [];
+      for (let i = 0; i < tutorIds.length; i += 10) {
+        reviewChunks.push(tutorIds.slice(i, i + 10));
       }
 
-      const subjectIds = Array.from(
-        new Set(tsDocs.map((d) => d.get("subjectId") as string).filter(Boolean))
-      );
-      const mapSubjects = await batchLoadMap<any>("subjects", subjectIds);
+      for (const chunk of reviewChunks) {
+        const reviewSnap = await fdb!
+          .collection("reviews")
+          .where("tutorId", "in", chunk)
+          .get();
 
-      const tutorsWithSubjects = profs.map((p) => {
-        const sids = byTutor.get(p.id) || [];
-        const subjects = sids
-          .map((sid) => (mapSubjects.get(sid) ? { id: sid, ...mapSubjects.get(sid)! } : null))
-          .filter(Boolean);
-        return { ...p, user: mapUsers.get(p.userId) || null, subjects };
-      });
+        for (const rDoc of reviewSnap.docs) {
+          const r = rDoc.data() as any;
+          const tid = String(r.tutorId || "");
+          const rating = Number(r.rating ?? 0);
+          if (!tid || !rating) continue;
 
-      res.json(tutorsWithSubjects);
-    } catch (error) {
-      console.error("Error fetching tutors:", error);
-      res.status(500).json({ message: "Failed to fetch tutors", fieldErrors: {} });
+          const prev = ratingStats.get(tid) || { sum: 0, count: 0 };
+          prev.sum += rating;
+          prev.count += 1;
+          ratingStats.set(tid, prev);
+        }
+      }
     }
-  });
+
+    const tutorsWithSubjects = profs.map((p) => {
+      const sids = byTutor.get(p.id) || [];
+      const subjects = sids
+        .map((sid) =>
+          mapSubjects.get(sid) ? { id: sid, ...mapSubjects.get(sid)! } : null
+        )
+        .filter(Boolean);
+
+      const stats = ratingStats.get(p.id);
+      const reviewCount = stats?.count ?? 0;
+      const averageRating =
+        stats && stats.count > 0 ? stats.sum / stats.count : 0;
+
+      return {
+        ...p,
+        user: mapUsers.get(p.userId) || null,
+        subjects,
+        // fields the TutorCard tries to read
+        averageRating,
+        reviewCount,
+        totalRating: averageRating,
+        totalReviews: reviewCount,
+      };
+    });
+
+    res.json(tutorsWithSubjects);
+  } catch (error) {
+    console.error("Error fetching tutors:", error);
+    res
+      .status(500)
+      .json({ message: "Failed to fetch tutors", fieldErrors: {} });
+  }
+});
+
 
   // === SINGLE TUTOR (for public profile page) ===
+  // === PUBLIC SINGLE TUTOR BY ID OR USERID ===
+  // GET /api/tutors/:id
 // === PUBLIC SINGLE TUTOR BY ID OR USERID ===
 // GET /api/tutors/:id
-// Put this after the self-profile routes and BEFORE /api/tutors/:id/availability
 app.get("/api/tutors/:id", async (req, res) => {
   try {
     const rawId = req.params.id;
@@ -1104,7 +1232,10 @@ app.get("/api/tutors/:id", async (req, res) => {
         .get();
 
       if (!byUser.empty) {
-        profile = { id: byUser.docs[0].id, ...byUser.docs[0].data() } as any;
+        profile = {
+          id: byUser.docs[0].id,
+          ...byUser.docs[0].data(),
+        } as any;
       }
     }
 
@@ -1114,13 +1245,15 @@ app.get("/api/tutors/:id", async (req, res) => {
         .json({ message: "Tutor profile not found", fieldErrors: {} });
     }
 
+    const profileId = profile.id as string;
+
     // join user
     const joinedUser = await getDoc<any>("users", profile.userId);
 
     // join subjects
     const tsSnap = await fdb!
       .collection("tutor_subjects")
-      .where("tutorId", "==", profile.id)
+      .where("tutorId", "==", profileId)
       .get();
     const subjectIds = tsSnap.docs.map((d) => d.get("subjectId"));
     let subjects: any[] = [];
@@ -1133,7 +1266,33 @@ app.get("/api/tutors/:id", async (req, res) => {
         .filter(Boolean) as any[];
     }
 
-    res.json({ ...profile, user: joinedUser, subjects });
+    // ---- NEW: aggregate reviews for this tutor ----
+    const reviewsSnap = await fdb!
+      .collection("reviews")
+      .where("tutorId", "==", profileId)
+      .get();
+
+    let sum = 0;
+    let count = 0;
+    for (const d of reviewsSnap.docs) {
+      const data = d.data() as any;
+      const rating = Number(data.rating ?? 0);
+      if (!rating) continue;
+      sum += rating;
+      count += 1;
+    }
+    const averageRating = count > 0 ? sum / count : 0;
+    const reviewCount = count;
+
+    res.json({
+      ...profile,
+      user: joinedUser,
+      subjects,
+      averageRating,
+      reviewCount,
+      totalRating: averageRating,
+      totalReviews: reviewCount,
+    });
   } catch (error) {
     console.error("Error fetching tutor by id:", error);
     res
@@ -1141,6 +1300,7 @@ app.get("/api/tutors/:id", async (req, res) => {
       .json({ message: "Failed to fetch tutor", fieldErrors: {} });
   }
 });
+
 
   // === SESSIONS (FAST JOIN) ===
   app.get("/api/sessions", requireUser, async (req, res) => {
@@ -1213,8 +1373,7 @@ app.get("/api/tutors/:id", async (req, res) => {
       });
 
       // scheduledAt -> Date
-      const sesStart =
-        body.scheduledAt instanceof Date ? body.scheduledAt : new Date(body.scheduledAt as string);
+      const sesStart = body.scheduledAt instanceof Date ? body.scheduledAt : new Date(body.scheduledAt as string);
       if (isNaN(sesStart.getTime())) {
         return res.status(400).json({ message: "Invalid scheduledAt", fieldErrors: {} });
       }
@@ -1443,6 +1602,99 @@ app.get("/api/tutors/:id", async (req, res) => {
     }
   });
 
+  app.post("/api/reviews", requireUser, async (req, res) => {
+    try {
+      const me = req.user!;
+      if (me.role !== "student") {
+        return res.status(403).json({
+          message: "Only students can submit reviews",
+          fieldErrors: {},
+        });
+      }
+
+      const { tutorId, rating, comment } = createReviewSchema.parse(req.body);
+
+      // Resolve tutor profile id (allow passing either tutor_profile.id or tutor userId)
+      let tutorProfile = await getDoc<any>("tutor_profiles", tutorId);
+      if (!tutorProfile) {
+        const byUser = await fdb!
+          .collection("tutor_profiles")
+          .where("userId", "==", tutorId)
+          .limit(1)
+          .get();
+        if (!byUser.empty) {
+          tutorProfile = {
+            id: byUser.docs[0].id,
+            ...byUser.docs[0].data(),
+          } as any;
+        }
+      }
+
+      if (!tutorProfile) {
+        return res.status(404).json({
+          message: "Tutor profile not found",
+          fieldErrors: {},
+        });
+      }
+
+      const resolvedTutorId = tutorProfile.id as string;
+
+      // Ensure at least one COMPLETED session between this student and this tutor
+      const completedSnap = await fdb!
+        .collection("tutoring_sessions")
+        .where("tutorId", "==", resolvedTutorId)
+        .where("studentId", "==", me.id)
+        .where("status", "==", "completed")
+        .limit(1)
+        .get();
+
+      if (completedSnap.empty) {
+        return res.status(403).json({
+          message: "You can only review tutors you have completed a session with",
+          fieldErrors: {},
+        });
+      }
+
+      // Enforce one review per student/tutor
+      const existingSnap = await fdb!
+        .collection("reviews")
+        .where("tutorId", "==", resolvedTutorId)
+        .where("studentId", "==", me.id)
+        .limit(1)
+        .get();
+
+      if (!existingSnap.empty) {
+        return res.status(400).json({
+          message: "You have already reviewed this tutor",
+          fieldErrors: {},
+        });
+      }
+
+      const docRef = await fdb!.collection("reviews").add({
+        tutorId: resolvedTutorId,
+        studentId: me.id,
+        rating,
+        comment: (comment ?? "").trim(),
+        createdAt: now(),
+        updatedAt: now(),
+      });
+
+      const snap = await docRef.get();
+      const data = { id: snap.id, ...(snap.data() as any) };
+
+      res.json(data);
+    } catch (error) {
+      console.error("Error creating review:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: "Invalid review data",
+          fieldErrors: error.flatten().fieldErrors,
+        });
+      }
+      res.status(500).json({ message: "Failed to create review", fieldErrors: {} });
+    }
+  });
+
   // === MESSAGES (student <-> tutor chat) ===
 
   const createMessageSchema = z.object({
@@ -1450,10 +1702,7 @@ app.get("/api/tutors/:id", async (req, res) => {
     content: z.string().min(1),
   });
 
-  function isStudentTutorPair(
-    me: AuthUser,
-    other: { id: string; role?: string | null } | null
-  ) {
+  function isStudentTutorPair(me: AuthUser, other: { id: string; role?: string | null } | null) {
     if (!other) return false;
     const r1 = me.role ?? null;
     const r2 = other.role ?? null;
@@ -1496,9 +1745,7 @@ app.get("/api/tutors/:id", async (req, res) => {
         ...(d.data() as any),
       }));
 
-      raw.sort(
-        (a, b) => coerceMillis(a.createdAt) - coerceMillis(b.createdAt)
-      );
+      raw.sort((a, b) => coerceMillis(a.createdAt) - coerceMillis(b.createdAt));
 
       // Join sender / receiver for UI
       const mapUsers = await batchLoadMap<any>("users", [me.id, otherUserId]);
@@ -1540,10 +1787,8 @@ app.get("/api/tutors/:id", async (req, res) => {
         return res.status(403).json({ message: "Chat is only allowed between students and tutors", fieldErrors: {} });
       }
 
-      const studentId =
-        me.role === "student" ? me.id : (otherUser.id as string);
-      const tutorId =
-        me.role === "tutor" ? me.id : (otherUser.id as string);
+      const studentId = me.role === "student" ? me.id : (otherUser.id as string);
+      const tutorId = me.role === "tutor" ? me.id : (otherUser.id as string);
 
       const docRef = await fdb!.collection("messages").add({
         senderId: me.id,
@@ -1851,6 +2096,44 @@ app.get("/api/tutors/:id", async (req, res) => {
     } catch (error: any) {
       console.error("Error approving tutor:", error);
       res.status(500).json({ message: "Failed to update tutor status", error: error.message });
+    }
+  });
+
+   // === CRON: AUTO-COMPLETE SESSIONS ===
+  // POST /api/admin/cron/auto-complete-sessions
+  // - In production: call regularly (e.g. via Cloud Scheduler) without "now" -> uses current time
+  // - For testing: send { "now": "2025-11-16T20:00:00Z" } or ?now=... to simulate future time
+  app.post("/api/admin/cron/auto-complete-sessions", requireUser, requireAdmin, async (req, res) => {
+    try {
+      const nowParam =
+        (req.body && typeof req.body.now === "string" && req.body.now) ||
+        (typeof req.query.now === "string" ? (req.query.now as string) : undefined);
+
+      let cutoff: Date;
+      if (nowParam) {
+        const d = new Date(nowParam);
+        if (isNaN(d.getTime())) {
+          return res
+            .status(400)
+            .json({ message: "Invalid 'now' parameter", fieldErrors: {} });
+        }
+        cutoff = d;
+      } else {
+        cutoff = new Date();
+      }
+
+      const result = await autoCompleteSessions(cutoff);
+
+      res.json({
+        ...result,
+        cutoff: cutoff.toISOString(),
+      });
+    } catch (error) {
+      console.error("Error auto-completing sessions:", error);
+      res.status(500).json({
+        message: "Failed to auto-complete sessions",
+        fieldErrors: {},
+      });
     }
   });
 
