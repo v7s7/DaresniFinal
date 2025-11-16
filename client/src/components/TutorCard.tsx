@@ -27,12 +27,19 @@ export function TutorCard({
   // Normalize subjects: support strings or {id,name}
   const subjects: { id: string; name: string }[] = (tutor?.subjects ?? []).map(
     (s: any, idx: number) =>
-      typeof s === "string" ? { id: s, name: s } : { id: s?.id ?? String(idx), name: s?.name ?? String(s) }
+      typeof s === "string"
+        ? { id: s, name: s }
+        : { id: s?.id ?? String(idx), name: s?.name ?? String(s) }
   );
+
+  const subjectsLine =
+    subjects.length > 0 ? subjects.map((s) => s.name).join(", ") : "General Tutoring";
 
   const firstName = tutor?.user?.firstName ?? "Tutor";
   const lastName = tutor?.user?.lastName ?? "";
   const profileImageUrl = tutor?.user?.profileImageUrl ?? "";
+
+  const hasReviews = totalReviews > 0;
 
   return (
     <Card className="card-hover h-full" data-testid={`tutor-card-${tutor?.id ?? "unknown"}`}>
@@ -48,12 +55,13 @@ export function TutorCard({
           </Avatar>
 
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-lg text-foreground truncate" data-testid="text-tutor-name">
+            <h3
+              className="font-semibold text-lg text-foreground truncate"
+              data-testid="text-tutor-name"
+            >
               {firstName} {lastName}
             </h3>
-            <p className="text-muted-foreground text-sm truncate">
-              {subjects.map((s) => s.name).join(", ")}
-            </p>
+            <p className="text-muted-foreground text-sm truncate">{subjectsLine}</p>
 
             {/* Rating */}
             <div className="flex items-center mt-2">
@@ -61,12 +69,19 @@ export function TutorCard({
                 {[...Array(5)].map((_, i) => (
                   <i
                     key={i}
-                    className={`fas fa-star text-sm ${i < Math.floor(averageRating) ? "" : "text-gray-300"}`}
+                    className={`fas fa-star text-sm ${
+                      i < Math.floor(averageRating) ? "" : "text-gray-300"
+                    }`}
                   />
                 ))}
               </div>
-              <span className="text-sm text-muted-foreground ml-2" data-testid="text-rating">
-                {averageRating.toFixed(1)} ({totalReviews} reviews)
+              <span
+                className="text-sm text-muted-foreground ml-2"
+                data-testid="text-rating"
+              >
+                {hasReviews
+                  ? `${averageRating.toFixed(1)} (${totalReviews} reviews)`
+                  : "No reviews yet"}
               </span>
             </div>
           </div>
@@ -77,7 +92,11 @@ export function TutorCard({
               ${hourlyRate}/hr
             </div>
             <div className="flex items-center justify-end mt-1">
-              <div className={`w-3 h-3 rounded-full ${isActive ? "bg-green-500" : "bg-yellow-400"}`} />
+              <div
+                className={`w-3 h-3 rounded-full ${
+                  isActive ? "bg-green-500" : "bg-yellow-400"
+                }`}
+              />
               <span className="text-xs text-muted-foreground ml-1">
                 {isActive ? "Available" : "Busy"}
               </span>
@@ -93,7 +112,11 @@ export function TutorCard({
         {/* Subjects/Expertise Tags */}
         <div className="flex flex-wrap gap-2 mb-4">
           {subjects.slice(0, 3).map((subject) => (
-            <Badge key={subject.id} variant="secondary" className="bg-primary/10 text-primary text-xs">
+            <Badge
+              key={subject.id}
+              variant="secondary"
+              className="bg-primary/10 text-primary text-xs"
+            >
               {subject.name}
             </Badge>
           ))}
@@ -125,7 +148,12 @@ export function TutorCard({
             <i className="fas fa-calendar-plus mr-2" />
             Book Session
           </Button>
-          <Button variant="outline" size="icon" onClick={onViewProfile} data-testid="button-view-profile">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={onViewProfile}
+            data-testid="button-view-profile"
+          >
             <i className="fas fa-user" />
           </Button>
           <Button
@@ -133,7 +161,11 @@ export function TutorCard({
             size="icon"
             onClick={onFavorite}
             data-testid="button-favorite"
-            className={isFavorite ? "text-red-500 border-red-500 hover:text-red-600 hover:border-red-600" : ""}
+            className={
+              isFavorite
+                ? "text-red-500 border-red-500 hover:text-red-600 hover:border-red-600"
+                : ""
+            }
           >
             <i className={isFavorite ? "fas fa-heart" : "far fa-heart"} />
           </Button>

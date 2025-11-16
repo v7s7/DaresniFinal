@@ -1,3 +1,4 @@
+// client/src/App.tsx
 import { useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -102,7 +103,7 @@ function AuthRouteGate() {
         }
         return;
       }
-      // Otherwise allow (tutors browse, profile settings, notifications, etc.)
+      // Otherwise allow (tutor browse, tutor profile, profile settings, notifications, etc.)
       return;
     }
 
@@ -169,6 +170,8 @@ export default function App() {
 
             {/* Public browsing */}
             <Route path="/tutors" component={TutorBrowse} />
+            {/* New alias so old /tutor/:id links still work */}
+            <Route path="/tutor/:id" component={TutorProfile} />
             <Route path="/tutors/:id" component={TutorProfile} />
 
             {/* Onboarding */}

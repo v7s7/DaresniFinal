@@ -1,31 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     /* ========================================
        HELPER FUNCTIONS
        ======================================== */
-    
+
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
-    
+
     function isAdmin() {
       return isSignedIn() &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
-    
+
     // Check if current user is the tutor for a given tutorProfileId
     function isTutorOwner(tutorProfileId) {
-      return isSignedIn() && 
+      return isSignedIn() &&
         exists(/databases/$(database)/documents/tutor_profiles/$(tutorProfileId)) &&
-        get(/databases/$(database)/documents/tutor_profiles/$(tutorProfileId)).data.userId == request.auth.uid;
+        get(/databases/$(database)/documents/tutor_profiles/$(tutorProfileId)).data.userId
+          == request.auth.uid;
     }
-    
+
     // Check if user is part of a session (as student OR tutor)
     function isInSession(sessionDoc) {
       return isSignedIn() && (
@@ -37,7 +38,7 @@ service cloud.firestore {
     /* ========================================
        SUBJECTS
        ======================================== */
-    
+
     match /subjects/{id} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
@@ -46,17 +47,18 @@ service cloud.firestore {
     /* ========================================
        USERS
        ======================================== */
-    
+
     match /users/{uid} {
-      // Allow showing tutor names/avatars etc.
+      // Allow showing tutor names/avatars etc. to signed-in users
       allow read: if isSignedIn();
-      
+
       // User can create their own doc
       allow create: if isSelf(uid);
-      
+
       // User can update their own doc (but not change role), or admin can update
-      allow update: if (isSelf(uid) && request.resource.data.role == resource.data.role) || isAdmin();
-      
+      allow update: if (isSelf(uid) && request.resource.data.role == resource.data.role)
+                    || isAdmin();
+
       // Only admin can delete
       allow delete: if isAdmin();
     }
@@ -64,18 +66,19 @@ service cloud.firestore {
     /* ========================================
        TUTOR PROFILES
        ======================================== */
-    
+
     match /tutor_profiles/{id} {
       // Anyone can browse tutors (for student discovery)
       allow read: if true;
-      
-      // Owner (tutor) can create their profile (doc id must match their userId)
+
+      // Owner (tutor) can create their profile (doc userId must match auth.uid)
       allow create: if isSignedIn()
                     && request.auth.uid == request.resource.data.userId;
-      
+
       // Owner or admin can update
-      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.userId);
-      
+      allow update: if isAdmin()
+                    || (isSignedIn() && request.auth.uid == resource.data.userId);
+
       // Only admin can delete
       allow delete: if isAdmin();
     }
@@ -83,30 +86,32 @@ service cloud.firestore {
     /* ========================================
        TUTOR SUBJECTS (junction table)
        ======================================== */
-    
+
     match /tutor_subjects/{id} {
       allow read: if true;
-      
-      // Extract tutorId from compound doc id (format: tutorId_subjectId)
+
+      // Any signed-in tutor can attach subjects; server can enforce details
       allow create: if isSignedIn();
+
+      // Only admin can modify / clean up
       allow update, delete: if isAdmin();
     }
 
     /* ========================================
        TUTORING SESSIONS
        ======================================== */
-    
+
     match /tutoring_sessions/{sid} {
-      // Anyone signed in can read (needed for availability checks and conflict detection)
+      // Signed-in users can read (used for availability/conflict checks in client)
       allow read: if isSignedIn();
-      
+
       // Student creates their own session
       allow create: if isSignedIn()
                     && request.auth.uid == request.resource.data.studentId;
-      
+
       // Student, tutor (via profile check), or admin can update
       allow update: if isAdmin() || isInSession(resource);
-      
+
       // Only admin can delete
       allow delete: if isAdmin();
     }
@@ -114,35 +119,35 @@ service cloud.firestore {
     /* ========================================
        REVIEWS
        ======================================== */
-    
+
     match /reviews/{rid} {
       // Anyone can read reviews (for displaying on tutor profiles)
       allow read: if true;
-      
+
       // Student can create review for their own sessions
       allow create: if isSignedIn()
                     && request.auth.uid == request.resource.data.studentId;
-      
+
       // Student who wrote review or admin can update/delete
-      allow update, delete: if isAdmin() ||
-        (isSignedIn() && request.auth.uid == resource.data.studentId);
+      allow update, delete: if isAdmin()
+        || (isSignedIn() && request.auth.uid == resource.data.studentId);
     }
 
     /* ========================================
        MESSAGES
        ======================================== */
-    
+
     match /messages/{mid} {
       // Only sender or receiver can read
       allow read: if isSignedIn() && (
         request.auth.uid == resource.data.senderId ||
         request.auth.uid == resource.data.receiverId
       );
-      
+
       // Only sender can create
       allow create: if isSignedIn()
                     && request.auth.uid == request.resource.data.senderId;
-      
+
       // Participants or admin can modify/delete
       allow update, delete: if isAdmin() || (
         isSignedIn() && (
@@ -155,42 +160,44 @@ service cloud.firestore {
     /* ========================================
        FILE UPLOADS
        ======================================== */
-    
+
     match /fileUploads/{fid} {
-      // Only users in the session can read
-      allow read: if isSignedIn(); // Simplified - adjust based on your needs
-      
+      // Simplified – adjust if you need per-session ACLs
+      allow read: if isSignedIn();
+
       // Only signed-in users can upload
       allow create: if isSignedIn()
                     && request.auth.uid == request.resource.data.uploaderId;
-      
+
       // Uploader or admin can delete
-      allow delete: if isAdmin() || 
-        (isSignedIn() && request.auth.uid == resource.data.uploaderId);
+      allow delete: if isAdmin()
+        || (isSignedIn() && request.auth.uid == resource.data.uploaderId);
     }
 
     /* ========================================
        NOTIFICATIONS
        ======================================== */
-    
+
     match /notifications/{nid} {
-      // Users can read their own notifications, admins can read admin notifications
+      // Users can read their own notifications, admins see admin audience
       allow read: if isSignedIn() && (
-        (resource.data.userId == request.auth.uid) ||
+        resource.data.userId == request.auth.uid ||
         (resource.data.audience == 'admin' && isAdmin())
       );
-      
-      // System creates notifications (handled server-side)
-      allow create: if false; // Only server can create
-      
-      // Users can mark their notifications as read
+
+      // System (Admin SDK / server) creates notifications
+      allow create: if false;
+
+      // Users can mark their notifications as read; admin can update anything
       allow update: if isSignedIn() && (
-        (resource.data.userId == request.auth.uid && 
-         request.resource.data.keys().hasOnly(['isRead']) &&
-         request.resource.data.isRead == true) ||
+        (
+          resource.data.userId == request.auth.uid &&
+          request.resource.data.keys().hasOnly(['isRead']) &&
+          request.resource.data.isRead == true
+        ) ||
         isAdmin()
       );
-      
+
       // Only admin can delete
       allow delete: if isAdmin();
     }
@@ -198,16 +205,18 @@ service cloud.firestore {
     /* ========================================
        FAVORITES
        ======================================== */
-    
+
     match /favorites/{fid} {
       // Users can read their own favorites
       allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      
+
       // Users can create their own favorites
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      
+      allow create: if isSignedIn()
+                    && request.resource.data.userId == request.auth.uid;
+
       // Users can delete their own favorites
-      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn()
+                    && resource.data.userId == request.auth.uid;
     }
   }
 }

@@ -327,6 +327,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })
   );
 
+  // Simple user lookup for chat header, etc.
+  app.get("/api/users/:id", requireUser, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userDoc = await getDoc<any>("users", id);
+      if (!userDoc) {
+        return res.status(404).json({ message: "User not found", fieldErrors: {} });
+      }
+
+      res.json({
+        id: userDoc.id,
+        email: userDoc.email ?? null,
+        firstName: userDoc.firstName ?? null,
+        lastName: userDoc.lastName ?? null,
+        profileImageUrl: userDoc.profileImageUrl ?? null,
+        role: userDoc.role ?? null,
+      });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user", fieldErrors: {} });
+    }
+  });
+
   // === AUTH ===
   app.get("/api/me", requireUser, async (req, res) => {
     try {
@@ -732,15 +755,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where("scheduledAt", "<=", eDay)
         .get();
 
-  const booked = bookedSnap.docs
-  .map((d) => ({ id: d.id, ...(d.data() as any) }))
-  .filter((s) => s.tutorId === profile.id) // keep only this tutor
-  .filter((s) => {
-    const st = (s.status || "scheduled") as string;
-    // Only confirmed/active sessions block availability
-    return st === "scheduled" || st === "in_progress";
-  });
-
+      const booked = bookedSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((s) => s.tutorId === profile.id)
+        .filter((s) => {
+          const st = (s.status || "scheduled") as string;
+          // Only confirmed/active sessions block availability
+          return st === "scheduled" || st === "in_progress";
+        });
 
       const slots: Array<{ start: string; end: string; available: boolean; at: string }> = [];
       for (const s of generateSlots(
@@ -1062,6 +1084,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // === SINGLE TUTOR (for public profile page) ===
+// === PUBLIC SINGLE TUTOR BY ID OR USERID ===
+// GET /api/tutors/:id
+// Put this after the self-profile routes and BEFORE /api/tutors/:id/availability
+app.get("/api/tutors/:id", async (req, res) => {
+  try {
+    const rawId = req.params.id;
+
+    // 1) try as tutor_profiles document id
+    let profile = await getDoc<any>("tutor_profiles", rawId);
+
+    // 2) if not found, try as userId
+    if (!profile) {
+      const byUser = await fdb!
+        .collection("tutor_profiles")
+        .where("userId", "==", rawId)
+        .limit(1)
+        .get();
+
+      if (!byUser.empty) {
+        profile = { id: byUser.docs[0].id, ...byUser.docs[0].data() } as any;
+      }
+    }
+
+    if (!profile) {
+      return res
+        .status(404)
+        .json({ message: "Tutor profile not found", fieldErrors: {} });
+    }
+
+    // join user
+    const joinedUser = await getDoc<any>("users", profile.userId);
+
+    // join subjects
+    const tsSnap = await fdb!
+      .collection("tutor_subjects")
+      .where("tutorId", "==", profile.id)
+      .get();
+    const subjectIds = tsSnap.docs.map((d) => d.get("subjectId"));
+    let subjects: any[] = [];
+    if (subjectIds.length) {
+      const map = await batchLoadMap<any>("subjects", subjectIds);
+      subjects = subjectIds
+        .map((sid) =>
+          map.get(sid) ? { id: sid, ...map.get(sid)! } : null
+        )
+        .filter(Boolean) as any[];
+    }
+
+    res.json({ ...profile, user: joinedUser, subjects });
+  } catch (error) {
+    console.error("Error fetching tutor by id:", error);
+    res
+      .status(500)
+      .json({ message: "Failed to fetch tutor", fieldErrors: {} });
+  }
+});
+
   // === SESSIONS (FAST JOIN) ===
   app.get("/api/sessions", requireUser, async (req, res) => {
     try {
@@ -1185,7 +1265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ message: "Outside tutor availability window", fieldErrors: {} });
       }
 
-      // 2) Conflict check - Check only confirmed sessions (scheduled / in_progress)
+      // 2) Conflict check - Check only confirmed sessions (scheduled)
       const sDay = startOfDay(sesStart);
       const eDay = endOfDay(sesStart);
       const bookedSnap = await fdb!
@@ -1195,19 +1275,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where("scheduledAt", "<=", eDay)
         .get();
 
-for (const d of bookedSnap.docs) {
-  const s = { id: d.id, ...(d.data() as any) };
-  const st = (s.status || "scheduled") as string;
-  // Only block if session is scheduled (confirmed)
-  if (st !== "scheduled") continue;
+      for (const d of bookedSnap.docs) {
+        const s = { id: d.id, ...(d.data() as any) };
+        const st = (s.status || "scheduled") as string;
+        // Only block if session is scheduled (confirmed)
+        if (st !== "scheduled") continue;
 
-  const bStart = new Date(coerceMillis(s.scheduledAt));
-  const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
-  if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
-    return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
-  }
-}
-
+        const bStart = new Date(coerceMillis(s.scheduledAt));
+        const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
+        if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
+          return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
+        }
+      }
 
       // 3) Create session with PENDING status
       const docRef = await fdb!.collection("tutoring_sessions").add({
@@ -1271,79 +1350,78 @@ for (const d of bookedSnap.docs) {
     }
   });
 
-app.put("/api/sessions/:id", requireUser, async (req, res) => {
-  try {
-    const user = req.user!;
-    const sessionId = req.params.id;
-    const { status } = req.body as { status: string };
+  app.put("/api/sessions/:id", requireUser, async (req, res) => {
+    try {
+      const user = req.user!;
+      const sessionId = req.params.id;
+      const { status } = req.body as { status: string };
 
-    const validStatuses = ["pending", "scheduled", "in_progress", "completed", "cancelled"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: "Invalid session status", fieldErrors: {} });
-    }
+      const validStatuses = ["pending", "scheduled", "in_progress", "completed", "cancelled"];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ message: "Invalid session status", fieldErrors: {} });
+      }
 
-    const ref = fdb!.collection("tutoring_sessions").doc(sessionId);
-    const snap = await ref.get();
-    if (!snap.exists) {
-      return res.status(404).json({ message: "Session not found", fieldErrors: {} });
-    }
-    const session = { id: snap.id, ...(snap.data() as any) } as any;
+      const ref = fdb!.collection("tutoring_sessions").doc(sessionId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ message: "Session not found", fieldErrors: {} });
+      }
+      const session = { id: snap.id, ...(snap.data() as any) } as any;
 
-    // Auth: only student, owning tutor, or admin can update
-    if (user.role === "student" && session.studentId !== user.id) {
-      return res.status(403).json({ message: "Not authorized to update this session", fieldErrors: {} });
-    }
-
-    if (user.role === "tutor") {
-      const profSnap = await fdb!.collection("tutor_profiles").where("userId", "==", user.id).limit(1).get();
-      const tutorProfile = profSnap.empty ? null : ({ id: profSnap.docs[0].id, ...profSnap.docs[0].data() } as any);
-      if (!tutorProfile || session.tutorId !== tutorProfile.id) {
+      // Auth: only student, owning tutor, or admin can update
+      if (user.role === "student" && session.studentId !== user.id) {
         return res.status(403).json({ message: "Not authorized to update this session", fieldErrors: {} });
       }
-    }
 
-    // If we are confirming the session, enforce conflict check
-    if (status === "scheduled") {
-      const sesStart = new Date(coerceMillis(session.scheduledAt));
-      if (isNaN(sesStart.getTime())) {
-        return res.status(400).json({ message: "Invalid session date", fieldErrors: {} });
-      }
-      const duration = Number(session.duration ?? 60);
-      const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
-
-      const sDay = startOfDay(sesStart);
-      const eDay = endOfDay(sesStart);
-
-      const bookedSnap = await fdb!
-        .collection("tutoring_sessions")
-        .where("tutorId", "==", session.tutorId)
-        .where("scheduledAt", ">=", sDay)
-        .where("scheduledAt", "<=", eDay)
-        .get();
-
-      for (const d of bookedSnap.docs) {
-        if (d.id === sessionId) continue; // ignore self
-        const s = { id: d.id, ...(d.data() as any) };
-        const st = (s.status || "scheduled") as string;
-        if (st !== "scheduled") continue;
-
-        const bStart = new Date(coerceMillis(s.scheduledAt));
-        const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
-        if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
-          return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
+      if (user.role === "tutor") {
+        const profSnap = await fdb!.collection("tutor_profiles").where("userId", "==", user.id).limit(1).get();
+        const tutorProfile = profSnap.empty ? null : ({ id: profSnap.docs[0].id, ...profSnap.docs[0].data() } as any);
+        if (!tutorProfile || session.tutorId !== tutorProfile.id) {
+          return res.status(403).json({ message: "Not authorized to update this session", fieldErrors: {} });
         }
       }
+
+      // If we are confirming the session, enforce conflict check
+      if (status === "scheduled") {
+        const sesStart = new Date(coerceMillis(session.scheduledAt));
+        if (isNaN(sesStart.getTime())) {
+          return res.status(400).json({ message: "Invalid session date", fieldErrors: {} });
+        }
+        const duration = Number(session.duration ?? 60);
+        const sesEnd = new Date(sesStart.getTime() + duration * 60_000);
+
+        const sDay = startOfDay(sesStart);
+        const eDay = endOfDay(sesStart);
+
+        const bookedSnap = await fdb!
+          .collection("tutoring_sessions")
+          .where("tutorId", "==", session.tutorId)
+          .where("scheduledAt", ">=", sDay)
+          .where("scheduledAt", "<=", eDay)
+          .get();
+
+        for (const d of bookedSnap.docs) {
+          if (d.id === sessionId) continue; // ignore self
+          const s = { id: d.id, ...(d.data() as any) };
+          const st = (s.status || "scheduled") as string;
+          if (st !== "scheduled") continue;
+
+          const bStart = new Date(coerceMillis(s.scheduledAt));
+          const bEnd = new Date(bStart.getTime() + Number(s.duration ?? 60) * 60_000);
+          if (overlaps(sesStart, sesEnd, bStart, bEnd)) {
+            return res.status(409).json({ message: "Time slot already booked", fieldErrors: {} });
+          }
+        }
+      }
+
+      await ref.set({ status, updatedAt: now() }, { merge: true });
+      const updated = await ref.get();
+      res.json({ id: updated.id, ...updated.data() });
+    } catch (error) {
+      console.error("Error updating session:", error);
+      res.status(500).json({ message: "Failed to update session", fieldErrors: {} });
     }
-
-    await ref.set({ status, updatedAt: now() }, { merge: true });
-    const updated = await ref.get();
-    res.json({ id: updated.id, ...updated.data() });
-  } catch (error) {
-    console.error("Error updating session:", error);
-    res.status(500).json({ message: "Failed to update session", fieldErrors: {} });
-  }
-});
-
+  });
 
   // === REVIEWS ===
   app.get("/api/reviews/:tutorId", async (req, res) => {
@@ -1365,13 +1443,216 @@ app.put("/api/sessions/:id", requireUser, async (req, res) => {
     }
   });
 
-  // === MESSAGES (placeholder) ===
-  app.get("/api/messages/:userId", requireUser, async (_req, res) => {
+  // === MESSAGES (student <-> tutor chat) ===
+
+  const createMessageSchema = z.object({
+    receiverId: z.string(),
+    content: z.string().min(1),
+  });
+
+  function isStudentTutorPair(
+    me: AuthUser,
+    other: { id: string; role?: string | null } | null
+  ) {
+    if (!other) return false;
+    const r1 = me.role ?? null;
+    const r2 = other.role ?? null;
+    return (
+      (r1 === "student" && r2 === "tutor") ||
+      (r1 === "tutor" && r2 === "student")
+    );
+  }
+
+  // GET /api/messages/:otherUserId  -> full conversation between current user and :otherUserId
+  app.get("/api/messages/:otherUserId", requireUser, async (req, res) => {
     try {
-      res.json([]);
+      const me = req.user!;
+      const otherUserId = req.params.otherUserId;
+
+      if (otherUserId === me.id) {
+        return res.status(400).json({ message: "Cannot chat with yourself", fieldErrors: {} });
+      }
+
+      const otherUser = await getDoc<any>("users", otherUserId);
+      if (!otherUser) {
+        return res.status(404).json({ message: "User not found", fieldErrors: {} });
+      }
+
+      // Only allow student <-> tutor conversations
+      if (!isStudentTutorPair(me, otherUser)) {
+        return res.status(403).json({ message: "Chat is only allowed between students and tutors", fieldErrors: {} });
+      }
+
+      // Fetch both directions, then merge & sort in memory
+      const col = fdb!.collection("messages");
+
+      const [snap1, snap2] = await Promise.all([
+        col.where("senderId", "==", me.id).where("receiverId", "==", otherUserId).get(),
+        col.where("senderId", "==", otherUserId).where("receiverId", "==", me.id).get(),
+      ]);
+
+      const raw = [...snap1.docs, ...snap2.docs].map((d) => ({
+        id: d.id,
+        ...(d.data() as any),
+      }));
+
+      raw.sort(
+        (a, b) => coerceMillis(a.createdAt) - coerceMillis(b.createdAt)
+      );
+
+      // Join sender / receiver for UI
+      const mapUsers = await batchLoadMap<any>("users", [me.id, otherUserId]);
+      const out = raw.map((m) => ({
+        id: m.id,
+        senderId: m.senderId,
+        receiverId: m.receiverId,
+        content: m.content,
+        read: !!m.read,
+        createdAt: new Date(coerceMillis(m.createdAt)).toISOString(),
+        sender: mapUsers.get(m.senderId) || null,
+        receiver: mapUsers.get(m.receiverId) || null,
+      }));
+
+      res.json(out);
     } catch (error) {
       console.error("Error fetching messages:", error);
       res.status(500).json({ message: "Failed to fetch messages", fieldErrors: {} });
+    }
+  });
+
+  // POST /api/messages  -> send a new message
+  app.post("/api/messages", requireUser, async (req, res) => {
+    try {
+      const me = req.user!;
+      const body = createMessageSchema.parse(req.body);
+
+      if (body.receiverId === me.id) {
+        return res.status(400).json({ message: "Cannot send message to yourself", fieldErrors: {} });
+      }
+
+      const otherUser = await getDoc<any>("users", body.receiverId);
+      if (!otherUser) {
+        return res.status(404).json({ message: "Receiver not found", fieldErrors: {} });
+      }
+
+      // Only allow student <-> tutor conversations
+      if (!isStudentTutorPair(me, otherUser)) {
+        return res.status(403).json({ message: "Chat is only allowed between students and tutors", fieldErrors: {} });
+      }
+
+      const studentId =
+        me.role === "student" ? me.id : (otherUser.id as string);
+      const tutorId =
+        me.role === "tutor" ? me.id : (otherUser.id as string);
+
+      const docRef = await fdb!.collection("messages").add({
+        senderId: me.id,
+        receiverId: body.receiverId,
+        content: body.content,
+        studentId,
+        tutorId,
+        read: false,
+        createdAt: now(),
+      });
+
+      const snap = await docRef.get();
+      const data = { id: snap.id, ...(snap.data() as any) };
+
+      const mapUsers = await batchLoadMap<any>("users", [me.id, body.receiverId]);
+      const resp = {
+        id: data.id,
+        senderId: data.senderId,
+        receiverId: data.receiverId,
+        content: data.content,
+        read: !!data.read,
+        createdAt: new Date(coerceMillis(data.createdAt)).toISOString(),
+        sender: mapUsers.get(data.senderId) || null,
+        receiver: mapUsers.get(data.receiverId) || null,
+      };
+
+      // Create NEW_MESSAGE notification for the receiver
+      try {
+        const senderName = `${me.firstName || ""} ${me.lastName || ""}`.trim() || "Someone";
+        await fdb!.collection("notifications").add({
+          type: "NEW_MESSAGE",
+          title: "New message",
+          body: `You have a new message from ${senderName}`,
+          userId: body.receiverId,
+          audience: "user",
+          isRead: false,
+          createdAt: now(),
+          data: {
+            fromUserId: me.id,
+          },
+        });
+      } catch (notifError) {
+        console.error("Failed to create NEW_MESSAGE notification:", notifError);
+      }
+
+      res.json(resp);
+    } catch (error) {
+      console.error("Error creating message:", error);
+      if (error instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ message: "Invalid message data", fieldErrors: error.flatten().fieldErrors });
+      }
+      res.status(500).json({ message: "Failed to send message", fieldErrors: {} });
+    }
+  });
+
+  // PUT /api/messages/read/:otherUserId  -> mark all messages FROM otherUserId TO me as read
+  app.put("/api/messages/read/:otherUserId", requireUser, async (req, res) => {
+    try {
+      const me = req.user!;
+      const otherUserId = req.params.otherUserId;
+
+      const otherUser = await getDoc<any>("users", otherUserId);
+      if (!otherUser) {
+        return res.status(404).json({ message: "User not found", fieldErrors: {} });
+      }
+
+      // Again: only student <-> tutor
+      if (!isStudentTutorPair(me, otherUser)) {
+        return res.status(403).json({ message: "Not allowed", fieldErrors: {} });
+      }
+
+      const snap = await fdb!
+        .collection("messages")
+        .where("senderId", "==", otherUserId)
+        .where("receiverId", "==", me.id)
+        .where("read", "==", false)
+        .get();
+
+      const batch = fdb!.batch();
+      for (const d of snap.docs) {
+        batch.update(d.ref, { read: true });
+      }
+      await batch.commit();
+
+      // Also mark related NEW_MESSAGE notifications as read
+      try {
+        const notifSnap = await fdb!
+          .collection("notifications")
+          .where("userId", "==", me.id)
+          .where("type", "==", "NEW_MESSAGE")
+          .where("data.fromUserId", "==", otherUserId)
+          .where("isRead", "==", false)
+          .get();
+
+        if (!notifSnap.empty) {
+          const notifBatch = fdb!.batch();
+          notifSnap.docs.forEach((d) => notifBatch.update(d.ref, { isRead: true }));
+          await notifBatch.commit();
+        }
+      } catch (notifError) {
+        console.error("Failed to mark NEW_MESSAGE notifications as read:", notifError);
+      }
+
+      res.json({ message: "Messages marked as read" });
+    } catch (error) {
+      console.error("Error marking messages as read:", error);
+      res.status(500).json({ message: "Failed to mark messages as read", fieldErrors: {} });
     }
   });
 

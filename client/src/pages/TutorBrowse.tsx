@@ -419,7 +419,7 @@ export default function TutorBrowse() {
                 key={tutor.id}
                 tutor={tutor}
                 onBook={() => handleBookSession(tutor)}
-                onViewProfile={() => (window.location.href = `/tutor/${tutor.id}`)}
+                onViewProfile={() => (window.location.href = `/tutors/${tutor.id}`)}
                 onFavorite={() => handleFavoriteToggle(tutor.id)}
                 isFavorite={isFav(tutor.id)}
               />

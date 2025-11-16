@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Message, User } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,24 +11,51 @@ import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 
 interface ChatWindowProps {
-  userId: string;
+  userId: string; // other participant (student or tutor)
   onClose: () => void;
 }
+
+type ChatUser = {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImageUrl?: string | null;
+};
+
+type ChatMessage = {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  read: boolean;
+  createdAt: string;
+  sender?: ChatUser | null;
+  receiver?: ChatUser | null;
+};
 
 export function ChatWindow({ userId, onClose }: ChatWindowProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
   const [newMessage, setNewMessage] = useState("");
+  const [hasMarkedRead, setHasMarkedRead] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { data: messages, isLoading } = useQuery<Array<Message & { sender: User, receiver: User }>>({
-    queryKey: ["/api", "messages", userId],
-    refetchInterval: 5000, // Poll every 5 seconds
+  // Fetch full conversation with this user
+  const {
+    data: messages,
+    isLoading,
+  } = useQuery<ChatMessage[]>({
+    queryKey: ["/api/messages", userId],
+    queryFn: () => apiRequest(`/api/messages/${userId}`),
+    refetchInterval: 5000,
   });
 
-  const { data: otherUser } = useQuery<User>({
-    queryKey: ["/api", "auth", "user"],
+  // Fetch the "other" user for header
+  const { data: otherUser } = useQuery<ChatUser>({
+    queryKey: ["/api/users", userId],
+    queryFn: () => apiRequest(`/api/users/${userId}`),
   });
 
   const sendMessageMutation = useMutation({
@@ -46,7 +72,7 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/messages", userId] });
       setNewMessage("");
     },
-    onError: (error: Error) => {
+    onError: () => {
       toast({
         title: "Error",
         description: "Failed to send message",
@@ -66,40 +92,52 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
     },
   });
 
+  // Scroll to bottom whenever messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    // Mark messages as read when chat is opened
-    if (messages && messages.length > 0) {
+    setHasMarkedRead(false);
+  }, [userId]);
+
+  // Mark as read once when messages load
+  useEffect(() => {
+    if (!hasMarkedRead && messages && messages.length > 0) {
       markAsReadMutation.mutate();
+      setHasMarkedRead(true);
     }
-  }, [messages]);
+  }, [messages, hasMarkedRead, markAsReadMutation]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
-    sendMessageMutation.mutate(newMessage.trim());
+    const trimmed = newMessage.trim();
+    if (!trimmed) return;
+    sendMessageMutation.mutate(trimmed);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage(e);
     }
   };
 
   return (
-    <div className="fixed bottom-4 right-4 w-80 h-96 z-50" data-testid="chat-window">
-      <Card className="h-full shadow-xl">
+    <div
+      className="fixed bottom-4 right-4 w-80 max-h-[80vh] z-50 flex flex-col"
+      data-testid="chat-window"
+    >
+      {/* IMPORTANT: make Card a flex column so footer stays visible */}
+      <Card className="h-full shadow-xl flex flex-col">
         <CardHeader className="p-4 bg-primary text-white">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <Avatar className="w-8 h-8">
                 <AvatarImage src={otherUser?.profileImageUrl || undefined} />
                 <AvatarFallback className="bg-white/20 text-white text-sm">
-                  {otherUser?.firstName?.[0]}{otherUser?.lastName?.[0]}
+                  {otherUser?.firstName?.[0]}
+                  {otherUser?.lastName?.[0]}
                 </AvatarFallback>
               </Avatar>
               <div>
@@ -107,7 +145,7 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
                   {otherUser?.firstName} {otherUser?.lastName}
                 </CardTitle>
                 <div className="flex items-center space-x-1">
-                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                  <div className="w-2 h-2 bg-green-400 rounded-full" />
                   <span className="text-xs opacity-90">Online</span>
                 </div>
               </div>
@@ -119,23 +157,24 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
               onClick={onClose}
               data-testid="button-close-chat"
             >
-              <i className="fas fa-times"></i>
+              <i className="fas fa-times" />
             </Button>
           </div>
         </CardHeader>
 
-        <CardContent className="p-0 h-full flex flex-col">
+        {/* IMPORTANT: CardContent is flex-1 column; ScrollArea flex-1; input fixed at bottom */}
+        <CardContent className="p-0 flex-1 flex flex-col">
           {/* Messages */}
-          <ScrollArea className="flex-1 p-4">
+          <ScrollArea className="flex-1 px-4 pt-4 pb-2">
             {isLoading ? (
               <div className="space-y-3">
                 {[...Array(3)].map((_, i) => (
                   <div key={i} className="animate-pulse">
                     <div className="flex space-x-2">
-                      <div className="w-8 h-8 bg-muted rounded-full"></div>
+                      <div className="w-8 h-8 bg-muted rounded-full" />
                       <div className="flex-1">
-                        <div className="h-4 bg-muted rounded w-3/4 mb-1"></div>
-                        <div className="h-3 bg-muted rounded w-1/2"></div>
+                        <div className="h-4 bg-muted rounded w-3/4 mb-1" />
+                        <div className="h-3 bg-muted rounded w-1/2" />
                       </div>
                     </div>
                   </div>
@@ -143,33 +182,33 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
               </div>
             ) : Array.isArray(messages) && messages.length > 0 ? (
               <div className="space-y-3">
-                {messages.map((message: any) => {
+                {messages.map((message) => {
                   const isOwnMessage = message.senderId === user?.id;
                   return (
                     <div
                       key={message.id}
-                      className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}
                       data-testid={`message-${message.id}`}
                     >
-                      <div className={`max-w-[75%] ${isOwnMessage ? 'order-2' : 'order-1'}`}>
+                      <div className={`max-w-[75%] ${isOwnMessage ? "order-2" : "order-1"}`}>
                         <div
                           className={`p-3 rounded-lg ${
                             isOwnMessage
-                              ? 'bg-primary text-white'
-                              : 'bg-muted text-foreground'
+                              ? "bg-primary text-white"
+                              : "bg-muted text-foreground"
                           }`}
                         >
                           <p className="text-sm">{message.content}</p>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1 px-1">
-                          {format(new Date(message.createdAt), 'HH:mm')}
+                          {format(new Date(message.createdAt), "HH:mm")}
                         </p>
                       </div>
                       {!isOwnMessage && (
                         <Avatar className="w-6 h-6 order-1 mr-2 mt-auto">
-                          <AvatarImage src={message.sender.profileImageUrl} />
+                          <AvatarImage src={message.sender?.profileImageUrl || undefined} />
                           <AvatarFallback className="text-xs">
-                            {message.sender.firstName?.[0]}
+                            {message.sender?.firstName?.[0]}
                           </AvatarFallback>
                         </Avatar>
                       )}
@@ -181,7 +220,7 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 <div className="text-center">
-                  <i className="fas fa-comments text-3xl mb-2"></i>
+                  <i className="fas fa-comments text-3xl mb-2" />
                   <p className="text-sm">No messages yet</p>
                   <p className="text-xs">Start the conversation!</p>
                 </div>
@@ -208,9 +247,9 @@ export function ChatWindow({ userId, onClose }: ChatWindowProps) {
                 data-testid="button-send-message"
               >
                 {sendMessageMutation.isPending ? (
-                  <i className="fas fa-spinner fa-spin"></i>
+                  <i className="fas fa-spinner fa-spin" />
                 ) : (
-                  <i className="fas fa-paper-plane"></i>
+                  <i className="fas fa-paper-plane" />
                 )}
               </Button>
             </form>
