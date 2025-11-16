@@ -11,7 +11,7 @@ const firebaseConfig = {
   storageBucket: "daresni-c9b13.firebasestorage.app",
   messagingSenderId: "731954028532",
   appId: "1:731954028532:web:c9d818aebf6550e8e2e3a1",
-  measurementId: "G-V0DL2SLXQF" // optional
+  measurementId: "G-V0DL2SLXQF" 
 };
 
 export const app = initializeApp(firebaseConfig);

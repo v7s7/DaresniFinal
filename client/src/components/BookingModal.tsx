@@ -28,6 +28,19 @@ type CreateSessionPayload = Omit<CreateSession, "scheduledAt"> & {
 
 type Slot = { start: string; end: string; available: boolean; at: string };
 
+// Match server DAY_KEYS order: 0 = sunday, 1 = monday, ...
+const DAY_KEYS = [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+] as const;
+type DayKey = (typeof DAY_KEYS)[number];
+const toDayKey = (d: Date): DayKey => DAY_KEYS[d.getDay()];
+
 async function postSession(payload: CreateSessionPayload) {
   try {
     console.log("📤 Posting session:", payload);
@@ -67,7 +80,7 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
-  // Track which dates have availability
+  // Track specific calendar dates that turned out to have no available slots
   const [unavailableDates, setUnavailableDates] = useState<Set<string>>(new Set());
 
   const hourlyRate = Number(tutor?.hourlyRate ?? 15);
@@ -91,8 +104,10 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
         setLoadingSlots(true);
         setSlotsError(null);
 
-        const yyyy_mm_dd = selectedDate.toISOString().slice(0, 10);
-        const path = `/api/tutors/${encodeURIComponent(tutor.id)}/availability?date=${yyyy_mm_dd}&step=60`;
+        const yyyy_mm_dd = format(selectedDate, "yyyy-MM-dd");
+        const path = `/api/tutors/${encodeURIComponent(
+          tutor.id
+        )}/availability?date=${yyyy_mm_dd}&step=60`;
 
         const res = await fetch(path, { credentials: "include" });
         const data = await res.json();
@@ -106,12 +121,16 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
 
         // If this date has no available slots, mark it as unavailable
         if (serverSlots.length === 0 || serverSlots.every((s) => !s.available)) {
-          setUnavailableDates((prev) => new Set(prev).add(yyyy_mm_dd));
+          setUnavailableDates((prev) => {
+            const next = new Set(prev);
+            next.add(yyyy_mm_dd);
+            return next;
+          });
         }
 
         // Clear selected slots if they're no longer available
         setSelectedSlots((prev) =>
-          prev.filter((slot) => serverSlots.some((s) => s.available && s.start === slot)),
+          prev.filter((slot) => serverSlots.some((s) => s.available && s.start === slot))
         );
       } catch (e: any) {
         console.error("❌ Availability fetch error:", e);
@@ -124,17 +143,35 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
     load();
   }, [tutor?.id, selectedDate]);
 
-  // Pre-check dates to disable unavailable ones
+  // Disable dates:
+  // - Past dates
+  // - Weekdays where tutor.availability[key].isAvailable === false
+  // - Concrete dates we already know are fully unavailable (unavailableDates)
   const isDateDisabled = (date: Date) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Disable past dates
-    if (date < today) return true;
+    const candidate = new Date(date);
+    candidate.setHours(0, 0, 0, 0);
 
-    // Check if this date is marked as unavailable
-    const yyyy_mm_dd = date.toISOString().slice(0, 10);
-    return unavailableDates.has(yyyy_mm_dd);
+    // Disable past dates
+    if (candidate < today) return true;
+
+    // Disable full off-days based on weekly availability (matches server DAY_KEYS / toDayKey)
+    const key = toDayKey(candidate);
+    const weeklyAvailability = (tutor as any)?.availability;
+    if (weeklyAvailability) {
+      const dayAvail = weeklyAvailability[key];
+      if (!dayAvail || dayAvail.isAvailable === false) {
+        return true;
+      }
+    }
+
+    // Disable dates we already discovered as having no slots
+    const yyyy_mm_dd = format(candidate, "yyyy-MM-dd");
+    if (unavailableDates.has(yyyy_mm_dd)) return true;
+
+    return false;
   };
 
   // Toggle slot selection
@@ -270,7 +307,9 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                   className="rounded-md border"
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-2">Unavailable dates are disabled</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Unavailable days are greyed out and cannot be selected.
+              </p>
             </div>
 
             {/* Time Selection */}
@@ -311,7 +350,13 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                         onClick={() => s.available && toggleSlot(s.start)}
                         disabled={!s.available}
                         data-testid={`button-time-${s.start}`}
-                        className={selectedSlots.includes(s.start) ? "bg-primary" : ""}
+                        className={
+                          selectedSlots.includes(s.start)
+                            ? "bg-primary"
+                            : !s.available
+                            ? "opacity-50 cursor-not-allowed"
+                            : ""
+                        }
                       >
                         {s.start} - {s.end}
                       </Button>
@@ -412,7 +457,7 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
               ) : (
                 <>
                   <i className="fas fa-credit-card mr-2" />
-                  Confirm & Pay ${totalPrice.toFixed(2)}
+                  Confirm &amp; Pay ${totalPrice.toFixed(2)}
                 </>
               )}
             </Button>
