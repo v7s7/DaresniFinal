@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { formatMoney } from "@/lib/currency";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -503,8 +504,9 @@ export default function AdminDashboard() {
                           <div>
                             <p className="font-medium text-muted-foreground">Hourly Rate</p>
                             <p className="text-lg font-semibold">
-                              ${tutor.profile.hourlyRate}/hr
-                            </p>
+  {formatMoney(tutor.profile.hourlyRate)}/hr
+</p>
+
                           </div>
                           <div>
                             <p className="font-medium text-muted-foreground">Phone</p>
@@ -784,9 +786,10 @@ export default function AdminDashboard() {
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4 text-sm">
                         <div>
                           <p className="font-medium">Hourly Rate</p>
-                          <p className="text-muted-foreground">
-                            ${tutor.profile.hourlyRate}/hour
-                          </p>
+                         <p className="text-muted-foreground">
+  {formatMoney(tutor.profile.hourlyRate)}/hour
+</p>
+
                         </div>
                         <div>
                           <p className="font-medium">Phone</p>
@@ -1004,8 +1007,9 @@ export default function AdminDashboard() {
                       Hourly Rate
                     </p>
                     <p className="text-base font-bold text-[#9B1B30]">
-                      ${selectedTutor.profile.hourlyRate}/hour
-                    </p>
+  {formatMoney(selectedTutor.profile.hourlyRate)}/hour
+</p>
+
                   </div>
                   <div>
                     <p className="font-medium text-sm text-muted-foreground">

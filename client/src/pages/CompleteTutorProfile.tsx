@@ -281,19 +281,19 @@ export default function CompleteTutorProfile() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="hourlyRate">Hourly Rate (USD) *</Label>
+<Label htmlFor="hourlyRate">Hourly Rate (BHD) *</Label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="hourlyRate"
                       type="number"
-                      placeholder="25"
+                      placeholder="10"
                       value={formData.hourlyRate}
                       onChange={(e) => setFormData((p) => ({ ...p, hourlyRate: e.target.value }))}
                       className="pl-10"
                       data-testid="input-hourlyRate"
-                      min={1}
-                      max={500}
+                      min={5}
+                      max={200}
                       step="1"
                       required
                     />

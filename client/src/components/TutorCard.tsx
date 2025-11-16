@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { formatMoney } from "@/lib/currency";
 
 type TutorCardProps = {
   tutor: any; // expects { id, user, hourlyRate, subjects, averageRating?, reviewCount?, totalRating?, totalReviews?, isVerified?, isActive?, bio?, experience? }
@@ -108,8 +109,9 @@ export function TutorCard({
           {/* Price and Status */}
           <div className="text-right">
             <div className="text-lg font-bold text-primary" data-testid="text-hourly-rate">
-              ${hourlyRate}/hr
-            </div>
+  {formatMoney(hourlyRate)}/hr
+</div>
+
             <div className="flex items-center justify-end mt-1">
               <div
                 className={`w-3 h-3 rounded-full ${

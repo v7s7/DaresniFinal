@@ -9,6 +9,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Clock, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { formatMoney } from "@/lib/currency";
 
 /** Robust approval checker - SIMPLIFIED */
 function isTutorApproved(profile: any): boolean {
@@ -224,7 +225,9 @@ export default function PendingApproval() {
                     </div>
                     <div>
                       <p className="text-gray-500">Hourly Rate</p>
-                      <p className="font-medium">${(profile as any).hourlyRate}/hour</p>
+<p className="font-medium">
+  {formatMoney((profile as any).hourlyRate ?? 0)}/hour
+</p>
                     </div>
                     <div>
                       <p className="text-gray-500">Submitted</p>

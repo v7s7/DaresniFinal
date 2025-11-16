@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { useLocation } from "wouter";
 import { Calendar, Clock, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import { formatMoney } from "@/lib/currency";
 
 /** ---------- helpers ---------- */
 type DayAvailability = { isAvailable: boolean; startTime: string; endTime: string };
@@ -428,7 +429,7 @@ export default function TutorDashboard() {
               <Card>
                 <CardContent className="p-6 text-center">
                   <div className="text-2xl font-bold text-primary" data-testid="text-total-earnings">
-                    ${totalEarnings.toFixed(2)}
+{formatMoney(totalEarnings)}
                   </div>
                   <div className="text-sm text-muted-foreground">Total Earnings</div>
                 </CardContent>
@@ -582,7 +583,9 @@ export default function TutorDashboard() {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Hourly Rate:</span>
-                      <span className="font-medium">${(tutorProfile as any)?.hourlyRate ?? 0}/hr</span>
+<span className="font-medium">
+  {formatMoney((tutorProfile as any)?.hourlyRate ?? 0)}/hr
+</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Total Students:</span>

@@ -10,6 +10,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { formatMoney } from "@/lib/currency";
 
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -288,7 +289,8 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
               </p>
               <div className="flex items-center space-x-2 mt-1">
                 <Badge variant="outline" className="bg-primary/10 text-primary">
-                  ${hourlyRate}/hour
+                    {formatMoney(hourlyRate)}/hour
+
                 </Badge>
               </div>
             </div>
@@ -416,20 +418,23 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
               </div>
               <div className="flex justify-between">
                 <span>Hourly Rate:</span>
-                <span className="font-medium">${hourlyRate}/hour</span>
+                <span className="font-medium">{formatMoney(hourlyRate)}/hour</span>
               </div>
               <div className="flex justify-between">
                 <span>Session Cost:</span>
-                <span className="font-medium">${sessionCost.toFixed(2)}</span>
+                <span className="font-medium">{formatMoney(sessionCost)}
+</span>
               </div>
               <div className="flex justify-between">
                 <span>Platform Fee (10%):</span>
-                <span className="font-medium">${platformFee.toFixed(2)}</span>
+                <span className="font-medium">{formatMoney(platformFee)}
+</span>
               </div>
               <div className="border-t border-border pt-2 flex justify-between font-semibold">
                 <span>Total:</span>
-                <span data-testid="text-total-price">${totalPrice.toFixed(2)}</span>
-              </div>
+<span data-testid="text-total-price">
+  {formatMoney(totalPrice)}
+</span>              </div>
             </div>
           </div>
 

@@ -393,23 +393,23 @@ export default function CompleteSignup() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="hourlyRate">Hourly Rate (USD) *</Label>
+<Label htmlFor="hourlyRate">Hourly Rate (BHD) *</Label>
                       <div className="relative">
                         <DollarSign className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                         <Input
                           id="hourlyRate"
                           type="number"
-                          placeholder="25"
+                          placeholder="10"
                           value={formData.tutorData.hourlyRate}
                           onChange={(e) => updateTutorField("hourlyRate", e.target.value)}
                           className="pl-10"
-                          min="5"
-                          max="500"
+                          min="10"
+                          max="200"
                           required
                         />
                       </div>
                       <p className="text-xs text-gray-500">
-                        Recommended: $15–$50 per hour depending on subject and experience
+                        Recommended: 10–50 per hour depending on subject and experience
                       </p>
                     </div>
                   </div>

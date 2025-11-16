@@ -11,6 +11,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { useAuth } from "@/components/AuthProvider";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { formatMoney } from "@/lib/currency";
 
 /** ======= Minimal local types ======= */
 type UserLite = {
@@ -362,7 +363,7 @@ export default function TutorProfile() {
                           className="text-3xl font-bold text-primary"
                           data-testid="text-hourly-rate"
                         >
-                          ${tutor.hourlyRate ?? 0}/hr
+{formatMoney(tutor.hourlyRate ?? 0)}/hr
                         </div>
                         {tutor.isVerified && (
                           <Badge variant="secondary" className="bg-green-100 text-green-800">
@@ -724,4 +725,3 @@ export default function TutorProfile() {
     </div>
   );
 }
-  
