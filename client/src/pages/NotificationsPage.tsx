@@ -60,7 +60,6 @@ function getChatUserId(n: Notification): string | undefined {
 }
 
 function isMessageNotification(n: Notification): boolean {
-  // Adjust this list to match your backend types if needed
   return (
     n.type === "NEW_MESSAGE" ||
     n.type === "MESSAGE" ||
@@ -142,7 +141,6 @@ export default function NotificationsPage() {
       return;
     }
 
-    // Mark as read when opening chat
     if (!notification.isRead) {
       markReadMutation.mutate(notification.id);
     }
@@ -187,13 +185,15 @@ export default function NotificationsPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-8">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            <p className="mt-2 text-muted-foreground">
-              Loading notifications...
-            </p>
+      <div className="min-h-screen bg-background pt-16">
+        <div className="container mx-auto py-8">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="mt-2 text-muted-foreground">
+                Loading notifications...
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -202,25 +202,27 @@ export default function NotificationsPage() {
 
   if (error) {
     return (
-      <div className="container mx-auto py-8">
-        <div className="max-w-3xl mx-auto">
-          <Card>
-            <CardContent className="py-12 text-center">
-              <p className="text-red-600 font-semibold">
-                Failed to load notifications
-              </p>
-              <p className="text-muted-foreground mt-2">
-                Please refresh the page and try again.
-              </p>
-            </CardContent>
-          </Card>
+      <div className="min-h-screen bg-background pt-16">
+        <div className="container mx-auto py-8">
+          <div className="max-w-3xl mx-auto">
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-red-600 font-semibold">
+                  Failed to load notifications
+                </p>
+                <p className="text-muted-foreground mt-2">
+                  Please refresh the page and try again.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <>
+    <div className="min-h-screen bg-background pt-16">
       <div className="container mx-auto py-8 px-4">
         <div className="max-w-3xl mx-auto">
           <div className="mb-6 flex items-center justify-between gap-3">
@@ -350,6 +352,6 @@ export default function NotificationsPage() {
           onClose={() => setActiveChatUserId(null)}
         />
       )}
-    </>
+    </div>
   );
 }
