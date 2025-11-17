@@ -633,7 +633,7 @@ export default function TutorDashboard() {
                     Manage Availability
                   </Button>
 
-                  <Button variant="outline" className="w-full justify-start" data-testid="button-view-earnings">
+                  <Button variant="outline" className="w-full justify-start" data-testid="button-view-earnings" onClick={() => navigate("/tutor-earnings")}> 
                     <i className="fas fa-chart-line mr-2"></i>
                     View Earnings
                   </Button>

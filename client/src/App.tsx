@@ -23,6 +23,7 @@ import ProfileSettings from "@/pages/ProfileSettings";
 import PendingApproval from "@/pages/PendingApproval";
 import NotificationsPage from "@/pages/NotificationsPage";
 import Navbar from "@/components/Navbar";
+import TutorEarningsReport from "@/pages/TutorEarningsReport";
 
 /** Small helper to support legacy /dashboard -> / */
 function DashboardAlias() {
@@ -94,7 +95,7 @@ function AuthRouteGate() {
     if (user.role === "student") {
       if (
         inEntry ||
-        at("/tutor-dashboard") ||
+        onTutorArea ||
         at("/pending-approval") ||
         at("/complete-tutor-profile")
       ) {
@@ -125,8 +126,8 @@ function AuthRouteGate() {
         tutorProfile?.__approved === true;
 
       if (!approved) {
-        // Pending tutors: block tutor dashboard, entry, and student dashboards
-        if (at("/tutor-dashboard") || inEntry || onStudentArea) {
+        // Pending tutors: block tutor area, entry, and student dashboards
+        if (onTutorArea || inEntry || onStudentArea) {
           if (!at("/pending-approval")) {
             navigate("/pending-approval", { replace: true });
           }
@@ -148,7 +149,7 @@ function AuthRouteGate() {
         return;
       }
 
-      // Otherwise allow navigation
+      // Otherwise allow navigation (including /tutor-earnings, etc.)
       return;
     }
   }, [user, isLoading, tutorProfile, tpLoading, location, navigate]);
@@ -182,6 +183,7 @@ export default function App() {
             {/* Signed-in areas */}
             <Route path="/student-dashboard" component={StudentDashboard} />
             <Route path="/tutor-dashboard" component={TutorDashboard} />
+            <Route path="/tutor-earnings" component={TutorEarningsReport} />
             <Route path="/profile-settings" component={ProfileSettings} />
             <Route path="/my-sessions" component={MySessions} />
             <Route path="/notifications" component={NotificationsPage} />
