@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { format } from "date-fns";
+import { formatMoney } from "@/lib/currency";
 
 interface SessionCardProps {
   session: any;
@@ -169,11 +170,12 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
                   <span>{session.duration || 60} min</span>
                 </div>
                 {priceValue !== undefined && !Number.isNaN(priceValue) && (
-                  <div className="flex items-center space-x-1">
-                    <i className="fas fa-dollar-sign text-xs" />
-                    <span>${priceValue.toFixed(2)}</span>
-                  </div>
-                )}
+  <div className="flex items-center space-x-1">
+    <i className="fas fa-coins text-xs" />
+    <span>{formatMoney(priceValue)}</span>
+  </div>
+)}
+
               </div>
 
               {session.notes && (

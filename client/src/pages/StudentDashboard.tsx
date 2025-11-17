@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Session, TutorProfile, User, Subject } from "@shared/schema";
 import { useLocation } from "wouter";
+import { formatMoney, formatFromCents } from "@/lib/currency";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

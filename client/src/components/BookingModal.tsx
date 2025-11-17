@@ -461,9 +461,10 @@ export function BookingModal({ tutor, onClose, onConfirm }: BookingModalProps) {
                 </>
               ) : (
                 <>
-                  <i className="fas fa-credit-card mr-2" />
-                  Confirm &amp; Pay ${totalPrice.toFixed(2)}
-                </>
+  <i className="fas fa-credit-card mr-2" />
+  Confirm &amp; Pay {formatMoney(totalPrice)}
+</>
+
               )}
             </Button>
           </div>
