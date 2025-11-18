@@ -1,10 +1,16 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useLocation } from "wouter";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,21 +18,25 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, GraduationCap, CheckCircle, Phone, DollarSign, Award, FileText, User } from "lucide-react";
+import {
+  BookOpen,
+  GraduationCap,
+  CheckCircle,
+  Phone,
+  DollarSign,
+  Award,
+  FileText,
+  AlertCircle,
+} from "lucide-react";
 import type { Subject } from "@shared/schema";
 
 export default function CompleteSignup() {
-  const { user, refreshUserData } = useAuth();
+  const { user, isLoading: authLoading, refreshUserData } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const [selectedRole, setSelectedRole] = useState<"student" | "tutor" | "">("");
   const [formData, setFormData] = useState({
-    // Student fields (minimal)
-    studentData: {},
-    
-    // Tutor fields (extensive)
     tutorData: {
       phone: "",
       bio: "",
@@ -35,53 +45,72 @@ export default function CompleteSignup() {
       education: "",
       certifications: "",
       subjects: [] as string[],
-    }
+    },
   });
 
-  // Fetch subjects for tutor role
+  // Redirect if user is not logged in or already has a role
+  useEffect(() => {
+    if (authLoading) return;
+
+    // Not signed in → go back home / login
+    if (!user) {
+      setLocation("/", { replace: true });
+      return;
+    }
+
+    // Already has a role → they shouldn't be here
+    if (user.role) {
+      setLocation("/", { replace: true });
+    }
+  }, [authLoading, user, setLocation]);
+
   const { data: subjects = [] } = useQuery<Subject[]>({
     queryKey: ["/api/subjects"],
+    enabled: selectedRole === "tutor",
   });
 
-  // Unified signup mutation
   const completeSignupMutation = useMutation({
     mutationFn: async (data: { role: "student" | "tutor"; profileData?: any }) => {
-      // First, set the role
       await apiRequest("/api/auth/choose-role", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: data.role }),
       });
 
-      // If tutor, also create the complete profile
       if (data.role === "tutor" && data.profileData) {
         return await apiRequest("/api/tutors/profile", {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data.profileData),
         });
       }
-
-      return { success: true };
+      return { ok: true };
     },
-    onSuccess: async () => {
-      // Refresh user data directly from auth context
+    onSuccess: async (_resp, variables) => {
       await refreshUserData();
-      // Small delay to ensure auth context updates
-      setTimeout(() => {
+
+      if (variables.role === "tutor") {
+        toast({
+          title: "✅ Application Submitted!",
+          description:
+            "Your tutor profile has been submitted for review. You'll be notified once approved.",
+          duration: 6000,
+        });
+        setLocation("/pending-approval");
+      } else {
+        toast({
+          title: "Welcome to Daresni!",
+          description: "Start browsing tutors and book your first session!",
+        });
+        // Let the role-aware "/" route decide which dashboard to show
         setLocation("/");
-      }, 300);
-      
-      toast({
-        title: "Welcome to Daresni!",
-        description: selectedRole === "tutor" 
-          ? "Your tutor profile has been submitted for review. You'll be notified once verified."
-          : "Start browsing tutors and book your first session!",
-      });
+      }
     },
-    onError: (error) => {
-      console.error("Failed to complete signup:", error);
+    onError: (error: any) => {
+      console.error("Signup error:", error);
       toast({
         title: "Error",
-        description: "Failed to complete signup. Please try again.",
+        description: error.message || "Failed to complete signup. Please try again.",
         variant: "destructive",
       });
     },
@@ -89,7 +118,7 @@ export default function CompleteSignup() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedRole) {
       toast({
         title: "Please select a role",
@@ -99,171 +128,228 @@ export default function CompleteSignup() {
       return;
     }
 
-    if (selectedRole === "tutor") {
-      // Validate tutor fields
-      const tutorData = formData.tutorData;
-      if (!tutorData.phone || !tutorData.bio || !tutorData.hourlyRate || !tutorData.experience || !tutorData.education) {
-        toast({
-          title: "Missing information",
-          description: "Please fill in all required fields.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (tutorData.bio.length < 50) {
-        toast({
-          title: "Bio too short",
-          description: "Please provide a detailed bio (at least 50 characters).",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (tutorData.subjects.length === 0) {
-        toast({
-          title: "No subjects selected",
-          description: "Please select at least one subject you can teach.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Convert data types for validation
-      const processedTutorData = {
-        ...tutorData,
-        hourlyRate: parseFloat(tutorData.hourlyRate) || 0,
-        certifications: tutorData.certifications ? tutorData.certifications.split(',').map(c => c.trim()).filter(c => c) : []
-      };
-      
-      completeSignupMutation.mutate({ 
-        role: selectedRole, 
-        profileData: processedTutorData 
-      });
-    } else {
-      // Student or Admin signup (just role selection)
-      completeSignupMutation.mutate({ role: selectedRole });
+    if (selectedRole === "student") {
+      completeSignupMutation.mutate({ role: "student" });
+      return;
     }
+
+    const t = formData.tutorData;
+
+    if (!t.phone || !t.bio || !t.hourlyRate || !t.experience || !t.education) {
+      toast({
+        title: "Missing information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (t.bio.trim().length < 50) {
+      toast({
+        title: "Bio too short",
+        description: "Please provide a detailed bio (at least 50 characters).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (t.subjects.length === 0) {
+      toast({
+        title: "No subjects selected",
+        description: "Please select at least one subject you can teach.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const hourlyRate = parseFloat(t.hourlyRate);
+    if (isNaN(hourlyRate) || hourlyRate < 5 || hourlyRate > 500) {
+      toast({
+        title: "Invalid hourly rate",
+        description: "Please enter a rate between $5 and $500 per hour.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const profileData = {
+      ...t,
+      hourlyRate,
+      certifications: t.certifications
+        ? t.certifications
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean)
+        : [],
+    };
+
+    completeSignupMutation.mutate({
+      role: "tutor",
+      profileData,
+    });
   };
 
   const handleSubjectChange = (subjectId: string, checked: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      tutorData: {
-        ...prev.tutorData,
-        subjects: checked 
-          ? [...prev.tutorData.subjects, subjectId]
-          : prev.tutorData.subjects.filter(id => id !== subjectId)
-      }
-    }));
+    setFormData((prev) => {
+      const set = new Set(prev.tutorData.subjects);
+      checked ? set.add(subjectId) : set.delete(subjectId);
+      return {
+        ...prev,
+        tutorData: { ...prev.tutorData, subjects: [...set] },
+      };
+    });
   };
 
   const updateTutorField = (field: string, value: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       tutorData: {
         ...prev.tutorData,
-        [field]: value
-      }
+        [field]: value,
+      },
     }));
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4 pt-20">
       <div className="max-w-4xl mx-auto py-8">
-        <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold text-[#9B1B30]">
+        <Card className="shadow-2xl">
+          <CardHeader className="text-center bg-gradient-to-r from-[#9B1B30] to-[#7a1625] text-white rounded-t-lg">
+            <CardTitle className="text-3xl font-bold">
               Complete Your Daresni Profile
             </CardTitle>
-            <CardDescription className="text-lg">
+            <CardDescription className="text-white/90 text-lg">
               Tell us about yourself to get started on our platform
             </CardDescription>
           </CardHeader>
-          
-          <CardContent>
+
+          <CardContent className="p-8">
             <form onSubmit={handleSubmit} className="space-y-8">
-              {/* Role Selection */}
+              {/* STEP 1: Role Selection */}
               <div className="space-y-4">
-                <h3 className="text-xl font-semibold">How would you like to use Daresni?</h3>
-                
+                <h3 className="text-2xl font-semibold text-gray-900">
+                  How would you like to use Daresni?
+                </h3>
+
                 <RadioGroup
                   value={selectedRole}
-                  onValueChange={(value) => setSelectedRole(value as "student" | "tutor")}
+                  onValueChange={(value) =>
+                    setSelectedRole(value as "student" | "tutor")
+                  }
                   className="space-y-4"
                 >
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors">
-                    <RadioGroupItem value="student" id="student" data-testid="radio-student" />
-                    <Label htmlFor="student" className="flex-1 cursor-pointer">
-                      <div className="flex items-start space-x-3">
-                        <BookOpen className="h-6 w-6 text-blue-600 mt-1" />
-                        <div>
-                          <h4 className="font-semibold text-lg">I'm a Student</h4>
-                          <p className="text-muted-foreground">
-                            I want to find qualified tutors to help me learn new subjects or improve my grades.
+                  {/* Student Option */}
+                  <div
+                    className={`flex items-center space-x-4 p-6 border-2 rounded-xl transition-all cursor-pointer ${
+                      selectedRole === "student"
+                        ? "border-blue-500 bg-blue-50 shadow-md"
+                        : "border-gray-200 hover:border-blue-300 hover:bg-blue-50/50"
+                    }`}
+                    onClick={() => setSelectedRole("student")}
+                  >
+                    <RadioGroupItem value="student" id="role-student" />
+                    <Label htmlFor="role-student" className="flex-1 cursor-pointer">
+                      <div className="flex items-start space-x-4">
+                        <BookOpen className="h-8 w-8 text-blue-600 mt-1 flex-shrink-0" />
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-xl text-gray-900">
+                            I'm a Student
+                          </h4>
+                          <p className="text-gray-600 mt-1">
+                            I want to find qualified tutors to help me learn new
+                            subjects or improve my grades.
                           </p>
-                          <div className="mt-2 flex items-center space-x-4 text-sm text-muted-foreground">
-                            <span className="flex items-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>Browse verified tutors</span>
-                            </span>
-                            <span className="flex items-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>Schedule sessions</span>
-                            </span>
-                            <span className="flex items-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>Track progress</span>
-                            </span>
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Browse verified tutors
+                            </Badge>
+                            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Schedule sessions
+                            </Badge>
+                            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Track progress
+                            </Badge>
                           </div>
                         </div>
                       </div>
                     </Label>
                   </div>
-                  
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg hover:bg-slate-50 transition-colors">
-                    <RadioGroupItem value="tutor" id="tutor" data-testid="radio-tutor" />
-                    <Label htmlFor="tutor" className="flex-1 cursor-pointer">
-                      <div className="flex items-start space-x-3">
-                        <GraduationCap className="h-6 w-6 text-[#9B1B30] mt-1" />
-                        <div>
-                          <h4 className="font-semibold text-lg">I'm a Tutor</h4>
-                          <p className="text-muted-foreground">
-                            I want to share my knowledge and help students achieve their learning goals.
+
+                  {/* Tutor Option */}
+                  <div
+                    className={`flex items-center space-x-4 p-6 border-2 rounded-xl transition-all cursor-pointer ${
+                      selectedRole === "tutor"
+                        ? "border-[#9B1B30] bg-red-50 shadow-md"
+                        : "border-gray-200 hover:border-[#9B1B30] hover:bg-red-50/50"
+                    }`}
+                    onClick={() => setSelectedRole("tutor")}
+                  >
+                    <RadioGroupItem value="tutor" id="role-tutor" />
+                    <Label htmlFor="role-tutor" className="flex-1 cursor-pointer">
+                      <div className="flex items-start space-x-4">
+                        <GraduationCap className="h-8 w-8 text-[#9B1B30] mt-1 flex-shrink-0" />
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-xl text-gray-900">
+                            I'm a Tutor
+                          </h4>
+                          <p className="text-gray-600 mt-1">
+                            I want to share my knowledge and help students
+                            achieve their learning goals.
                           </p>
-                          <div className="mt-2 flex items-center space-x-4 text-sm text-muted-foreground">
-                            <span className="flex items-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>Earn money teaching</span>
-                            </span>
-                            <span className="flex items-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>Flexible schedule</span>
-                            </span>
-                            <span className="flex items-center space-x-1">
-                              <CheckCircle className="h-4 w-4" />
-                              <span>Build reputation</span>
-                            </span>
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            <Badge variant="secondary" className="bg-red-100 text-[#9B1B30]">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Earn money teaching
+                            </Badge>
+                            <Badge variant="secondary" className="bg-red-100 text-[#9B1B30]">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Flexible schedule
+                            </Badge>
+                            <Badge variant="secondary" className="bg-red-100 text-[#9B1B30]">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Build reputation
+                            </Badge>
                           </div>
                         </div>
                       </div>
                     </Label>
                   </div>
-                  
                 </RadioGroup>
               </div>
 
-              {/* Tutor-specific fields (shown only when tutor is selected) */}
+              {/* STEP 2: Tutor-specific fields */}
               {selectedRole === "tutor" && (
                 <>
+                  {/* Notice */}
+                  <div className="bg-orange-50 border-l-4 border-orange-500 p-5 rounded-r-lg">
+                    <div className="flex items-start space-x-3">
+                      <AlertCircle className="h-6 w-6 text-orange-600 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-semibold text-orange-900 mb-1">
+                          Application Review Process
+                        </p>
+                        <p className="text-orange-800">
+                          Your profile will be reviewed by our admin team before you can start
+                          tutoring. This typically takes <strong>1–2 business days</strong>. You'll
+                          receive an email once approved.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Contact Information */}
                   <div className="space-y-4">
-                    <h3 className="text-xl font-semibold">Contact Information</h3>
-                    
+                    <h3 className="text-xl font-semibold flex items-center text-gray-900">
+                      <Phone className="h-5 w-5 mr-2 text-[#9B1B30]" />
+                      Contact Information
+                    </h3>
                     <div className="space-y-2">
                       <Label htmlFor="phone">Phone Number *</Label>
                       <div className="relative">
-                        <Phone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                         <Input
                           id="phone"
                           type="tel"
@@ -271,7 +357,6 @@ export default function CompleteSignup() {
                           value={formData.tutorData.phone}
                           onChange={(e) => updateTutorField("phone", e.target.value)}
                           className="pl-10"
-                          data-testid="input-phone"
                           required
                         />
                       </div>
@@ -280,150 +365,179 @@ export default function CompleteSignup() {
 
                   {/* Teaching Information */}
                   <div className="space-y-4">
-                    <h3 className="text-xl font-semibold">Teaching Information</h3>
-                    
+                    <h3 className="text-xl font-semibold flex items-center text-gray-900">
+                      <GraduationCap className="h-5 w-5 mr-2 text-[#9B1B30]" />
+                      Teaching Information
+                    </h3>
+
                     <div className="space-y-2">
-                      <Label htmlFor="bio">Tell us about yourself *</Label>
+                      <Label htmlFor="bio">Professional Bio * (minimum 50 characters)</Label>
                       <Textarea
                         id="bio"
                         placeholder="Describe your teaching experience, approach, and what makes you a great tutor..."
                         value={formData.tutorData.bio}
                         onChange={(e) => updateTutorField("bio", e.target.value)}
                         className="min-h-32"
-                        data-testid="textarea-bio"
                         required
                       />
-                      <p className="text-sm text-muted-foreground">
-                        {formData.tutorData.bio.length}/50 characters minimum
+                      <p
+                        className={`text-sm ${
+                          formData.tutorData.bio.length < 50
+                            ? "text-red-600"
+                            : "text-green-600"
+                        }`}
+                      >
+                        {formData.tutorData.bio.length}/50 characters
+                        {formData.tutorData.bio.length >= 50 && " ✓"}
                       </p>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="hourlyRate">Hourly Rate (USD) *</Label>
+<Label htmlFor="hourlyRate">Hourly Rate (BHD) *</Label>
                       <div className="relative">
-                        <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <DollarSign className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                         <Input
                           id="hourlyRate"
                           type="number"
-                          placeholder="25"
+                          placeholder="10"
                           value={formData.tutorData.hourlyRate}
                           onChange={(e) => updateTutorField("hourlyRate", e.target.value)}
                           className="pl-10"
-                          data-testid="input-hourly-rate"
-                          min="1"
-                          max="500"
+                          min="10"
+                          max="200"
                           required
                         />
                       </div>
+                      <p className="text-xs text-gray-500">
+                        Recommended: 10–50 per hour depending on subject and experience
+                      </p>
                     </div>
                   </div>
 
-                  {/* Experience & Education */}
+                  {/* Background */}
                   <div className="space-y-4">
-                    <h3 className="text-xl font-semibold">Background</h3>
-                    
+                    <h3 className="text-xl font-semibold flex items-center text-gray-900">
+                      <Award className="h-5 w-5 mr-2 text-[#9B1B30]" />
+                      Background & Qualifications
+                    </h3>
+
                     <div className="space-y-2">
                       <Label htmlFor="experience">Teaching Experience *</Label>
-                      <div className="relative">
-                        <Award className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Textarea
-                          id="experience"
-                          placeholder="Describe your teaching experience, years of tutoring, previous roles..."
-                          value={formData.tutorData.experience}
-                          onChange={(e) => updateTutorField("experience", e.target.value)}
-                          className="pl-10 min-h-24"
-                          data-testid="textarea-experience"
-                          required
-                        />
-                      </div>
+                      <Textarea
+                        id="experience"
+                        placeholder="Describe your teaching experience, years of tutoring, previous roles..."
+                        value={formData.tutorData.experience}
+                        onChange={(e) => updateTutorField("experience", e.target.value)}
+                        className="min-h-24"
+                        required
+                      />
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="education">Education Background *</Label>
-                      <div className="relative">
-                        <GraduationCap className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Textarea
-                          id="education"
-                          placeholder="Your degree, university, relevant coursework..."
-                          value={formData.tutorData.education}
-                          onChange={(e) => updateTutorField("education", e.target.value)}
-                          className="pl-10 min-h-24"
-                          data-testid="textarea-education"
-                          required
-                        />
-                      </div>
+                      <Textarea
+                        id="education"
+                        placeholder="Your degree, university, relevant coursework..."
+                        value={formData.tutorData.education}
+                        onChange={(e) => updateTutorField("education", e.target.value)}
+                        className="min-h-24"
+                        required
+                      />
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="certifications">Certifications (Optional)</Label>
-                      <div className="relative">
-                        <FileText className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                        <Textarea
-                          id="certifications"
-                          placeholder="Teaching certifications, professional credentials, awards..."
-                          value={formData.tutorData.certifications}
-                          onChange={(e) => updateTutorField("certifications", e.target.value)}
-                          className="pl-10 min-h-20"
-                          data-testid="textarea-certifications"
-                        />
-                      </div>
+                      <Textarea
+                        id="certifications"
+                        placeholder="Teaching certifications, professional credentials, awards (comma-separated)"
+                        value={formData.tutorData.certifications}
+                        onChange={(e) => updateTutorField("certifications", e.target.value)}
+                        className="min-h-20"
+                      />
                     </div>
                   </div>
 
-                  {/* Subject Selection */}
+                  {/* Subjects */}
                   <div className="space-y-4">
-                    <h3 className="text-xl font-semibold">Subjects You Can Teach *</h3>
-                    <p className="text-muted-foreground">Select all subjects you're qualified to teach</p>
-                    
+                    <h3 className="text-xl font-semibold flex items-center text-gray-900">
+                      <FileText className="h-5 w-5 mr-2 text-[#9B1B30]" />
+                      Subjects You Can Teach *
+                    </h3>
+                    <p className="text-gray-600">
+                      Select all subjects you're qualified to teach (at least one required)
+                    </p>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {subjects.map((subject) => (
-                        <div key={subject.id} className="flex items-center space-x-3 p-3 border rounded-lg">
-                          <Checkbox
-                            id={subject.id}
-                            checked={formData.tutorData.subjects.includes(subject.id)}
-                            onCheckedChange={(checked) => handleSubjectChange(subject.id, !!checked)}
-                            data-testid={`checkbox-subject-${subject.id}`}
-                          />
-                          <Label htmlFor={subject.id} className="flex-1 cursor-pointer">
-                            <div className="font-medium">{subject.name}</div>
-                            <div className="text-sm text-muted-foreground">{subject.description}</div>
-                            <Badge variant="secondary" className="mt-1 text-xs">
-                              {subject.category}
-                            </Badge>
-                          </Label>
-                        </div>
-                      ))}
+                      {subjects.map((subject) => {
+                        const sid = `subject-${subject.id}`;
+                        const checked = formData.tutorData.subjects.includes(subject.id);
+                        return (
+                          <div
+                            key={subject.id}
+                            className={`flex items-center space-x-3 p-4 border-2 rounded-lg transition-all ${
+                              checked
+                                ? "border-[#9B1B30] bg-red-50"
+                                : "border-gray-200 hover:border-[#9B1B30]/50"
+                            }`}
+                          >
+                            <Checkbox
+                              id={sid}
+                              checked={checked}
+                              onCheckedChange={(isChecked) =>
+                                handleSubjectChange(subject.id, !!isChecked)
+                              }
+                            />
+                            <Label htmlFor={sid} className="flex-1 cursor-pointer">
+                              <div className="font-medium">{subject.name}</div>
+                              <div className="text-sm text-gray-500">
+                                {(subject as any).description || ""}
+                              </div>
+                              {(subject as any).category && (
+                                <Badge variant="secondary" className="mt-1 text-xs">
+                                  {(subject as any).category}
+                                </Badge>
+                              )}
+                            </Label>
+                          </div>
+                        );
+                      })}
                     </div>
+
+                    {formData.tutorData.subjects.length > 0 && (
+                      <p className="text-sm text-green-600 flex items-center">
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        {formData.tutorData.subjects.length} subject(s) selected
+                      </p>
+                    )}
                   </div>
                 </>
               )}
 
               {/* Submit Button */}
-              <div className="pt-6">
-                <Button 
-                  type="submit" 
-                  size="lg" 
-                  className="w-full bg-[#9B1B30] hover:bg-[#7a1625]"
+              <div className="pt-6 border-t">
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full bg-[#9B1B30] hover:bg-[#7a1625] text-lg py-6"
                   disabled={!selectedRole || completeSignupMutation.isPending}
-                  data-testid="button-complete-signup"
                 >
                   {completeSignupMutation.isPending ? (
                     <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Setting up your account...</span>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                      <span>Processing...</span>
                     </div>
                   ) : selectedRole === "tutor" ? (
-                    "Complete Tutor Profile"
+                    "Submit Tutor Application"
                   ) : selectedRole === "student" ? (
                     "Start Learning"
                   ) : (
                     "Continue"
                   )}
                 </Button>
-                
+
                 {selectedRole === "tutor" && (
-                  <p className="text-center text-sm text-muted-foreground mt-3">
-                    Your profile will be reviewed by our administrators before you can start tutoring.
+                  <p className="text-center text-sm text-gray-500 mt-4">
+                    By submitting, you agree to have your profile reviewed by our admin team.
                   </p>
                 )}
               </div>

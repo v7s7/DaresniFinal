@@ -1,3 +1,4 @@
+// client/src/pages/CompleteTutorProfile.tsx
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,10 +13,20 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/components/AuthProvider";
 import { Phone, GraduationCap, Briefcase, DollarSign, FileText, Award } from "lucide-react";
 
+// NEW: Load subjects from Firestore instead of API
+import { db } from "@/lib/firebase";
+import { collection, getDocs, orderBy, query } from "firebase/firestore";
+
 interface Subject {
   id: string;
   name: string;
-  category: string;
+  category?: string;
+  description?: string;
+}
+
+interface TutorProfileShape {
+  id: string;
+  isVerified?: boolean;
 }
 
 export default function CompleteTutorProfile() {
@@ -34,43 +45,105 @@ export default function CompleteTutorProfile() {
     subjects: [] as string[],
   });
 
-  // Fetch subjects
-  const { data: subjects = [] } = useQuery<Subject[]>({
-    queryKey: ["/api/subjects"],
+  // 1) If tutor profile exists, route accordingly
+  const { data: existingProfile, isLoading: profileLoading } = useQuery<TutorProfileShape>({
+    queryKey: ["/api/tutors/profile"],
+    queryFn: async () => {
+      const res = await apiRequest("/api/tutors/profile");
+      if (res.status === 404) return null as unknown as TutorProfileShape;
+      if (!res.ok) throw new Error("Failed to load tutor profile");
+      return res.json();
+    },
+    staleTime: 5000,
   });
 
-  // Pre-fill form with user data
   useEffect(() => {
-    if (user) {
-      setFormData(prev => ({
-        ...prev,
-        // You could pre-fill other fields from user profile if available
-      }));
+    if (!profileLoading) {
+      if (existingProfile && existingProfile.id) {
+        if (existingProfile.isVerified) {
+          setLocation("/"); // TutorDashboard via router
+        } else {
+          setLocation("/pending-approval");
+        }
+      }
     }
-  }, [user]);
+  }, [existingProfile, profileLoading, setLocation]);
 
+  // 2) Subjects — from Firestore
+  const {
+    data: subjects = [],
+    isLoading: subjectsLoading,
+    error: subjectsError,
+  } = useQuery<Subject[]>({
+    queryKey: ["firestore", "subjects"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const q = query(collection(db, "subjects"), orderBy("name", "asc"));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          id: d.id,
+          name: data.name ?? "",
+          category: data.category ?? "",
+          description: data.description ?? "",
+        } as Subject;
+      });
+    },
+  });
+
+  // 3) Submit (set role + create/overwrite profile)
   const updateProfileMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      return apiRequest("/api/tutors/profile", {
+    mutationFn: async () => {
+      // Ensure role=tutor (safe if already tutor)
+      await apiRequest("/api/auth/choose-role", {
         method: "POST",
-        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "tutor" }),
       });
+
+      const payload = {
+        phone: formData.phone.trim(),
+        bio: formData.bio.trim(),
+        hourlyRate: Number(formData.hourlyRate) || 0,
+        experience: formData.experience.trim(),
+        education: formData.education.trim(),
+        certifications: formData.certifications
+          ? formData.certifications.split(",").map((c) => c.trim()).filter(Boolean)
+          : [],
+        subjects: formData.subjects,
+        // initial verification status
+        isVerified: false,
+        isActive: false,
+        verificationStatus: "pending",
+      };
+
+      const res = await apiRequest("/api/tutors/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e?.error || e?.message || "Failed to save profile");
+      }
+      return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/me"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tutors/profile"] });
-      
-      setLocation("/");
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/me"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/tutors/profile"] }),
+      ]);
       toast({
-        title: "Profile completed!",
-        description: "Your tutor profile has been submitted for review. You'll be notified once verified.",
+        title: "Profile submitted",
+        description: "Your profile is under review. We'll notify you when approved.",
       });
+      setLocation("/pending-approval");
     },
-    onError: (error) => {
-      console.error("Failed to update profile:", error);
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to save profile. Please try again.",
+        description: String(error?.message || "Failed to save profile"),
         variant: "destructive",
       });
     },
@@ -78,7 +151,7 @@ export default function CompleteTutorProfile() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Validation
     if (!formData.phone || !formData.bio || !formData.hourlyRate || !formData.experience || !formData.education) {
       toast({
@@ -88,8 +161,7 @@ export default function CompleteTutorProfile() {
       });
       return;
     }
-
-    if (formData.bio.length < 50) {
+    if (formData.bio.trim().length < 50) {
       toast({
         title: "Bio too short",
         description: "Please provide a detailed bio (at least 50 characters).",
@@ -97,7 +169,6 @@ export default function CompleteTutorProfile() {
       });
       return;
     }
-
     if (formData.subjects.length === 0) {
       toast({
         title: "No subjects selected",
@@ -107,37 +178,52 @@ export default function CompleteTutorProfile() {
       return;
     }
 
-    updateProfileMutation.mutate(formData);
+    updateProfileMutation.mutate();
   };
 
-  const handleSubjectChange = (subjectId: string, checked: boolean) => {
-    setFormData(prev => ({
+  const handleSubjectChange = (subjectId: string, checked: boolean | "indeterminate") => {
+    const isChecked = checked === true;
+    setFormData((prev) => ({
       ...prev,
-      subjects: checked 
-        ? [...prev.subjects, subjectId]
-        : prev.subjects.filter(id => id !== subjectId)
+      subjects: isChecked ? [...prev.subjects, subjectId] : prev.subjects.filter((id) => id !== subjectId),
     }));
   };
+
+  if (profileLoading || subjectsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  if (subjectsError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-red-600">
+        Failed to load subjects from Firestore.
+      </div>
+    );
+  }
+
+  // If profile exists, the effect above will redirect. Render nothing.
+  if (existingProfile && existingProfile.id) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white p-4">
       <div className="max-w-4xl mx-auto py-8">
         <Card>
           <CardHeader className="text-center">
-            <CardTitle className="text-3xl font-bold text-[#9B1B30]">
-              Complete Your Tutor Profile
-            </CardTitle>
+            <CardTitle className="text-3xl font-bold text-[#9B1B30]">Complete Your Tutor Profile</CardTitle>
             <CardDescription className="text-lg">
-              Tell us about your teaching experience and expertise. This information helps students find the right tutor for their needs.
+              Tell us about your teaching experience and expertise. This helps students find you.
             </CardDescription>
           </CardHeader>
-          
+
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Personal Information */}
+              {/* Contact Information */}
               <div className="space-y-4">
                 <h3 className="text-xl font-semibold">Contact Information</h3>
-                
                 <div className="space-y-2">
                   <Label htmlFor="phone">Phone Number *</Label>
                   <div className="relative">
@@ -147,18 +233,19 @@ export default function CompleteTutorProfile() {
                       type="tel"
                       placeholder="Enter your phone number"
                       value={formData.phone}
-                      onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
                       className="pl-10"
                       data-testid="input-phone"
+                      required
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Teaching Information */}
+              {/* Teaching Background */}
               <div className="space-y-4">
                 <h3 className="text-xl font-semibold">Teaching Background</h3>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="education">Education Background *</Label>
                   <div className="relative">
@@ -168,9 +255,10 @@ export default function CompleteTutorProfile() {
                       type="text"
                       placeholder="e.g., Master's in Mathematics, University of XYZ"
                       value={formData.education}
-                      onChange={(e) => setFormData(prev => ({ ...prev, education: e.target.value }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, education: e.target.value }))}
                       className="pl-10"
                       data-testid="input-education"
+                      required
                     />
                   </div>
                 </div>
@@ -184,25 +272,30 @@ export default function CompleteTutorProfile() {
                       type="text"
                       placeholder="e.g., 5 years teaching high school mathematics"
                       value={formData.experience}
-                      onChange={(e) => setFormData(prev => ({ ...prev, experience: e.target.value }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, experience: e.target.value }))}
                       className="pl-10"
                       data-testid="input-experience"
+                      required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="hourlyRate">Hourly Rate (USD) *</Label>
+<Label htmlFor="hourlyRate">Hourly Rate (BHD) *</Label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="hourlyRate"
                       type="number"
-                      placeholder="25"
+                      placeholder="10"
                       value={formData.hourlyRate}
-                      onChange={(e) => setFormData(prev => ({ ...prev, hourlyRate: e.target.value }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, hourlyRate: e.target.value }))}
                       className="pl-10"
                       data-testid="input-hourlyRate"
+                      min={5}
+                      max={200}
+                      step="1"
+                      required
                     />
                   </div>
                 </div>
@@ -217,13 +310,10 @@ export default function CompleteTutorProfile() {
                       <Checkbox
                         id={subject.id}
                         checked={formData.subjects.includes(subject.id)}
-                        onCheckedChange={(checked) => handleSubjectChange(subject.id, checked as boolean)}
+                        onCheckedChange={(checked) => handleSubjectChange(subject.id, checked)}
                         data-testid={`checkbox-subject-${subject.id}`}
                       />
-                      <Label 
-                        htmlFor={subject.id} 
-                        className="text-sm cursor-pointer"
-                      >
+                      <Label htmlFor={subject.id} className="text-sm cursor-pointer">
                         {subject.name}
                       </Label>
                     </div>
@@ -234,23 +324,21 @@ export default function CompleteTutorProfile() {
               {/* Bio */}
               <div className="space-y-4">
                 <h3 className="text-xl font-semibold">About Me</h3>
-                
                 <div className="space-y-2">
                   <Label htmlFor="bio">Professional Bio * (minimum 50 characters)</Label>
                   <div className="relative">
                     <FileText className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Textarea
                       id="bio"
-                      placeholder="Tell students about your teaching philosophy, experience, and what makes you a great tutor. Be specific about your expertise and approach."
+                      placeholder="Share your teaching philosophy, experience, expertise, and approach."
                       value={formData.bio}
-                      onChange={(e) => setFormData(prev => ({ ...prev, bio: e.target.value }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, bio: e.target.value }))}
                       className="min-h-[120px] pl-10"
                       data-testid="textarea-bio"
+                      required
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {formData.bio.length}/50 characters minimum
-                  </p>
+                  <p className="text-xs text-muted-foreground">{formData.bio.length}/50 characters minimum</p>
                 </div>
 
                 <div className="space-y-2">
@@ -259,9 +347,9 @@ export default function CompleteTutorProfile() {
                     <Award className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Textarea
                       id="certifications"
-                      placeholder="List any relevant certifications, licenses, awards, or additional qualifications..."
+                      placeholder="Comma-separated list (e.g., TEFL, PMP, Award XYZ)"
                       value={formData.certifications}
-                      onChange={(e) => setFormData(prev => ({ ...prev, certifications: e.target.value }))}
+                      onChange={(e) => setFormData((p) => ({ ...p, certifications: e.target.value }))}
                       className="min-h-[80px] pl-10"
                       data-testid="textarea-certifications"
                     />
@@ -269,12 +357,11 @@ export default function CompleteTutorProfile() {
                 </div>
               </div>
 
-              {/* Submit */}
+              {/* Review notice */}
               <div className="bg-blue-50 p-4 rounded-lg">
                 <p className="text-sm text-blue-700">
-                  <strong>Note:</strong> Your profile will be reviewed by our team for verification. 
-                  Once approved, you'll be able to accept students and start teaching. 
-                  This typically takes 1-2 business days.
+                  <strong>Note:</strong> Your profile will be reviewed. Once approved, you’ll be redirected to your
+                  dashboard automatically.
                 </p>
               </div>
 

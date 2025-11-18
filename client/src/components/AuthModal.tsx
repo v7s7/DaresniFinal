@@ -1,12 +1,14 @@
+// client/src/components/AuthModal.tsx
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/AuthProvider"; // or "@/hooks/useAuth" if you prefer
 import { useToast } from "@/hooks/use-toast";
-import { Eye, EyeOff, Mail, Lock, User, X } from "lucide-react";
+import { Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface AuthModalProps {
@@ -17,16 +19,17 @@ interface AuthModalProps {
 export function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const { signInWithEmail, signUpWithEmail } = useAuth();
   const { toast } = useToast();
-  
+  const [, navigate] = useLocation();
+
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   // Sign In Form State
   const [signInData, setSignInData] = useState({
     email: "",
     password: "",
   });
-  
+
   // Sign Up Form State - simplified to basic account creation only
   const [signUpData, setSignUpData] = useState({
     firstName: "",
@@ -38,7 +41,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!signInData.email || !signInData.password) {
       toast({
         title: "Missing information",
@@ -59,7 +62,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     } catch (error: any) {
       console.error("Email sign in error:", error);
       let errorMessage = "Invalid email or password.";
-      
+
       if (error.code === "auth/user-not-found") {
         errorMessage = "No account found with this email address.";
       } else if (error.code === "auth/wrong-password") {
@@ -67,7 +70,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       } else if (error.code === "auth/invalid-email") {
         errorMessage = "Invalid email address.";
       }
-      
+
       toast({
         title: "Sign in failed",
         description: errorMessage,
@@ -79,7 +82,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Basic validation
     if (!signUpData.firstName || !signUpData.lastName || !signUpData.email || !signUpData.password) {
       toast({
@@ -110,16 +113,28 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
     setIsLoading(true);
     try {
-      await signUpWithEmail(signUpData.email, signUpData.password, signUpData.firstName, signUpData.lastName);
+      // 1) Create auth user + base user doc
+      await signUpWithEmail(
+        signUpData.email,
+        signUpData.password,
+        signUpData.firstName,
+        signUpData.lastName
+      );
+
+          navigate("/complete-signup");   // <--- THIS is what sends you there
+
+      // 2) Notify and redirect to role selection / profile completion
       toast({
         title: "Welcome to Daresni!",
-        description: "Your account has been created successfully.",
+        description: "Your account has been created successfully. Let’s finish your setup.",
       });
+
+      navigate("/complete-signup"); // <-- send them to the choose-role flow
       onClose();
     } catch (error: any) {
       console.error("Email sign up error:", error);
       let errorMessage = "Failed to create account. Please try again.";
-      
+
       if (error.code === "auth/email-already-in-use") {
         errorMessage = "An account with this email already exists.";
       } else if (error.code === "auth/weak-password") {
@@ -127,7 +142,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       } else if (error.code === "auth/invalid-email") {
         errorMessage = "Invalid email address.";
       }
-      
+
       toast({
         title: "Sign up failed",
         description: errorMessage,
@@ -145,13 +160,18 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         <DialogHeader>
           <DialogTitle className="text-center">Welcome to Daresni</DialogTitle>
         </DialogHeader>
-        
+
         <Tabs defaultValue="signin" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="signin" data-testid="tab-signin">Sign In</TabsTrigger>
-            <TabsTrigger value="signup" data-testid="tab-signup">Sign Up</TabsTrigger>
+            <TabsTrigger value="signin" data-testid="tab-signin">
+              Sign In
+            </TabsTrigger>
+            <TabsTrigger value="signup" data-testid="tab-signup">
+              Sign Up
+            </TabsTrigger>
           </TabsList>
-          
+
+          {/* SIGN IN TAB */}
           <TabsContent value="signin" className="space-y-4">
             <form onSubmit={handleEmailSignIn} className="space-y-4">
               <div className="space-y-2">
@@ -163,13 +183,15 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     type="email"
                     placeholder="Enter your email"
                     value={signInData.email}
-                    onChange={(e) => setSignInData(prev => ({ ...prev, email: e.target.value }))}
+                    onChange={(e) =>
+                      setSignInData((prev) => ({ ...prev, email: e.target.value }))
+                    }
                     className="pl-10"
                     data-testid="input-signin-email"
                   />
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="signin-password">Password</Label>
                 <div className="relative">
@@ -179,7 +201,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     type={showPassword ? "text" : "password"}
                     placeholder="Enter your password"
                     value={signInData.password}
-                    onChange={(e) => setSignInData(prev => ({ ...prev, password: e.target.value }))}
+                    onChange={(e) =>
+                      setSignInData((prev) => ({ ...prev, password: e.target.value }))
+                    }
                     className="pl-10 pr-10"
                     data-testid="input-signin-password"
                   />
@@ -192,7 +216,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   </button>
                 </div>
               </div>
-              
+
               <Button
                 type="submit"
                 disabled={isLoading}
@@ -203,7 +227,8 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
               </Button>
             </form>
           </TabsContent>
-          
+
+          {/* SIGN UP TAB */}
           <TabsContent value="signup" className="space-y-4">
             <form onSubmit={handleEmailSignUp} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -216,7 +241,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       type="text"
                       placeholder="First name"
                       value={signUpData.firstName}
-                      onChange={(e) => setSignUpData(prev => ({ ...prev, firstName: e.target.value }))}
+                      onChange={(e) =>
+                        setSignUpData((prev) => ({ ...prev, firstName: e.target.value }))
+                      }
                       className="pl-10"
                       data-testid="input-signup-firstname"
                     />
@@ -231,14 +258,16 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       type="text"
                       placeholder="Last name"
                       value={signUpData.lastName}
-                      onChange={(e) => setSignUpData(prev => ({ ...prev, lastName: e.target.value }))}
+                      onChange={(e) =>
+                        setSignUpData((prev) => ({ ...prev, lastName: e.target.value }))
+                      }
                       className="pl-10"
                       data-testid="input-signup-lastname"
                     />
                   </div>
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="signup-email">Email *</Label>
                 <div className="relative">
@@ -248,13 +277,15 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     type="email"
                     placeholder="Enter your email"
                     value={signUpData.email}
-                    onChange={(e) => setSignUpData(prev => ({ ...prev, email: e.target.value }))}
+                    onChange={(e) =>
+                      setSignUpData((prev) => ({ ...prev, email: e.target.value }))
+                    }
                     className="pl-10"
                     data-testid="input-signup-email"
                   />
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="signup-password">Password *</Label>
                 <div className="relative">
@@ -264,7 +295,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     type={showPassword ? "text" : "password"}
                     placeholder="Create a password"
                     value={signUpData.password}
-                    onChange={(e) => setSignUpData(prev => ({ ...prev, password: e.target.value }))}
+                    onChange={(e) =>
+                      setSignUpData((prev) => ({ ...prev, password: e.target.value }))
+                    }
                     className="pl-10 pr-10"
                     data-testid="input-signup-password"
                   />
@@ -277,7 +310,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   </button>
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="signup-confirm">Confirm Password *</Label>
                 <div className="relative">
@@ -287,13 +320,15 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                     type="password"
                     placeholder="Confirm your password"
                     value={signUpData.confirmPassword}
-                    onChange={(e) => setSignUpData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    onChange={(e) =>
+                      setSignUpData((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                    }
                     className="pl-10"
                     data-testid="input-signup-confirm"
                   />
                 </div>
               </div>
-              
+
               <Button
                 type="submit"
                 disabled={isLoading}

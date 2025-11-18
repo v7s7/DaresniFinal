@@ -1,42 +1,135 @@
+// client/src/components/SessionCard.tsx
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { format } from "date-fns";
+import { formatMoney } from "@/lib/currency";
 
 interface SessionCardProps {
   session: any;
-  userRole: 'student' | 'tutor';
+  userRole: "student" | "tutor";
   onChat?: () => void;
+  /**
+   * Actions fired by the card:
+   * - "request_cancel"  -> user started a cancel request
+   * - "accept_cancel"   -> user agreed to cancel
+   * - "reject_cancel"   -> user declined the cancel request
+   */
   onAction?: (action: string) => void;
 }
 
-export function SessionCard({ session, userRole, onChat, onAction }: SessionCardProps) {
-  const isUpcoming = new Date(session.scheduledAt) > new Date();
-  const isToday = new Date(session.scheduledAt).toDateString() === new Date().toDateString();
-  
-  const otherUser = userRole === 'student' ? session.tutor.user : session.student;
-  const displayName = userRole === 'student' 
-    ? `${session.tutor.user.firstName} ${session.tutor.user.lastName}`
-    : `${session.student.firstName} ${session.student.lastName}`;
+// Safely normalize various date shapes (Date, Firestore Timestamp, string, number)
+function normalizeDate(raw: any): Date {
+  try {
+    if (!raw) return new Date();
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'scheduled':
-        return 'bg-blue-100 text-blue-800';
-      case 'in_progress':
-        return 'bg-green-100 text-green-800';
-      case 'completed':
-        return 'bg-gray-100 text-gray-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
+    if (raw instanceof Date) {
+      return isNaN(raw.getTime()) ? new Date() : raw;
+    }
+
+    // Firestore Timestamp with toDate()
+    if (typeof raw === "object" && typeof raw.toDate === "function") {
+      const d = raw.toDate();
+      return d instanceof Date && !isNaN(d.getTime()) ? d : new Date();
+    }
+
+    // Firestore Timestamp {_seconds}
+    if (typeof raw === "object" && typeof raw._seconds === "number") {
+      const d = new Date(raw._seconds * 1000);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    if (typeof raw === "string" || typeof raw === "number") {
+      const d = new Date(raw);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    return new Date();
+  } catch {
+    return new Date();
+  }
+}
+
+export function SessionCard({ session, userRole, onChat, onAction }: SessionCardProps) {
+  // Prefer scheduledDate; fallback to scheduledAt
+  const scheduled = normalizeDate(session.scheduledDate ?? session.scheduledAt);
+
+  const rawStatus: string = typeof session.status === "string" ? session.status : "scheduled";
+  const status = rawStatus.replace("-", "_"); // "in-progress" -> "in_progress"
+
+  const now = new Date();
+  const isUpcoming = scheduled > now;
+  const isToday = scheduled.toDateString() === now.toDateString();
+
+  const otherUser = userRole === "student" ? session.tutor.user : session.student;
+  const displayName =
+    userRole === "student"
+      ? `${session.tutor.user.firstName} ${session.tutor.user.lastName}`
+      : `${session.student.firstName} ${session.student.lastName}`;
+
+  const cancelRequestedByTutor = !!session.cancelRequestedByTutor;
+  const cancelRequestedByStudent = !!session.cancelRequestedByStudent;
+
+  const getStatusColor = (s: string) => {
+    switch (s) {
+      case "pending":
+        return "bg-yellow-100 text-yellow-800";
+      case "scheduled":
+        return "bg-blue-100 text-blue-800";
+      case "in_progress":
+        return "bg-green-100 text-green-800";
+      case "completed":
+        return "bg-gray-100 text-gray-800";
+      case "cancelled":
+        return "bg-red-100 text-red-800";
       default:
-        return 'bg-gray-100 text-gray-800';
+        return "bg-gray-100 text-gray-800";
     }
   };
 
-  const canJoin = isToday && session.status === 'scheduled' && 
-    Math.abs(new Date().getTime() - new Date(session.scheduledAt).getTime()) < 30 * 60 * 1000; // 30 minutes
+  // Prefer priceCents if present, fallback to price
+  const priceValue =
+    session.priceCents != null
+      ? Number(session.priceCents) / 100
+      : session.price != null
+      ? Number(session.price)
+      : undefined;
+
+  const subjectName = session.subject?.name ?? "Session";
+
+  const subjectIcon = (() => {
+    const name = (subjectName || "").toLowerCase();
+    if (name.includes("math")) return "fa-calculator";
+    if (name.includes("science")) return "fa-flask";
+    if (name.includes("english")) return "fa-book";
+    if (name.includes("programming") || name.includes("computer")) return "fa-code";
+    if (name.includes("history")) return "fa-landmark";
+    if (name.includes("art")) return "fa-palette";
+    return "fa-graduation-cap";
+  })();
+
+  // ---- Cancel button state logic ----
+  const showRequestCancelButton =
+    status === "scheduled" &&
+    isUpcoming &&
+    !cancelRequestedByTutor &&
+    !cancelRequestedByStudent;
+
+  const tutorShouldRespondToCancel =
+    status === "scheduled" &&
+    cancelRequestedByStudent &&
+    userRole === "tutor";
+
+  const studentShouldRespondToCancel =
+    status === "scheduled" &&
+    cancelRequestedByTutor &&
+    userRole === "student";
+
+  const waitingForOtherSide =
+    status === "scheduled" &&
+    ((cancelRequestedByTutor && userRole === "tutor") ||
+      (cancelRequestedByStudent && userRole === "student"));
 
   return (
     <Card className="hover:shadow-md transition-shadow" data-testid={`session-card-${session.id}`}>
@@ -45,166 +138,142 @@ export function SessionCard({ session, userRole, onChat, onAction }: SessionCard
           <div className="flex items-center space-x-4 flex-1">
             {/* Subject Icon */}
             <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-              <i className={`fas ${
-                session.subject.name.toLowerCase().includes('math') ? 'fa-calculator' :
-                session.subject.name.toLowerCase().includes('science') ? 'fa-flask' :
-                session.subject.name.toLowerCase().includes('english') ? 'fa-book' :
-                session.subject.name.toLowerCase().includes('programming') ? 'fa-code' :
-                'fa-graduation-cap'
-              } text-primary`}></i>
+              <i className={`fas ${subjectIcon} text-primary`} />
             </div>
 
             {/* Session Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-2 mb-1">
                 <h3 className="font-semibold truncate" data-testid="text-session-title">
-                  {session.subject.name} with {displayName}
+                  {subjectName} with {displayName}
                 </h3>
-                <Badge className={getStatusColor(session.status)}>
-                  {session.status.replace('_', ' ')}
+                <Badge className={getStatusColor(status)}>
+                  {status.replace("_", " ")}
                 </Badge>
               </div>
-              
+
               <div className="flex items-center space-x-4 text-sm text-muted-foreground">
                 <div className="flex items-center space-x-1">
-                  <i className="fas fa-calendar text-xs"></i>
+                  <i className="fas fa-calendar text-xs" />
                   <span data-testid="text-session-date">
-                    {format(new Date(session.scheduledAt), 'MMM dd, yyyy')}
+                    {format(scheduled, "MMM dd, yyyy")}
                   </span>
                 </div>
                 <div className="flex items-center space-x-1">
-                  <i className="fas fa-clock text-xs"></i>
+                  <i className="fas fa-clock text-xs" />
                   <span data-testid="text-session-time">
-                    {format(new Date(session.scheduledAt), 'HH:mm')}
+                    {format(scheduled, "HH:mm")}
                   </span>
                 </div>
                 <div className="flex items-center space-x-1">
-                  <i className="fas fa-stopwatch text-xs"></i>
+                  <i className="fas fa-stopwatch text-xs" />
                   <span>{session.duration || 60} min</span>
                 </div>
-                {session.price && (
-                  <div className="flex items-center space-x-1">
-                    <i className="fas fa-dollar-sign text-xs"></i>
-                    <span>${session.price}</span>
-                  </div>
-                )}
+                {priceValue !== undefined && !Number.isNaN(priceValue) && (
+  <div className="flex items-center space-x-1">
+    <i className="fas fa-coins text-xs" />
+    <span>{formatMoney(priceValue)}</span>
+  </div>
+)}
+
               </div>
 
               {session.notes && (
                 <p className="text-sm text-muted-foreground mt-1 truncate">
-                  <i className="fas fa-sticky-note text-xs mr-1"></i>
+                  <i className="fas fa-sticky-note text-xs mr-1" />
                   {session.notes}
                 </p>
+              )}
+
+              {/* Cancel request info / status */}
+              {status === "scheduled" && (
+                <div className="mt-3 text-xs">
+                  {tutorShouldRespondToCancel && (
+                    <div className="p-2 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">
+                      Student requested to cancel this session.
+                    </div>
+                  )}
+                  {studentShouldRespondToCancel && (
+                    <div className="p-2 rounded bg-yellow-50 border border-yellow-200 text-yellow-900">
+                      Tutor requested to cancel this session.
+                    </div>
+                  )}
+                  {waitingForOtherSide && (
+                    <div className="p-2 rounded bg-blue-50 border border-blue-200 text-blue-900">
+                      Waiting for the other person to confirm cancellation.
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
             {/* Other User Avatar */}
             <Avatar className="w-10 h-10 flex-shrink-0">
-              <AvatarImage 
-                src={otherUser.profileImageUrl} 
-                alt={otherUser.firstName}
-              />
+              <AvatarImage src={otherUser.profileImageUrl} alt={otherUser.firstName} />
               <AvatarFallback>
-                {otherUser.firstName?.[0]}{otherUser.lastName?.[0]}
+                {otherUser.firstName?.[0]}
+                {otherUser.lastName?.[0]}
               </AvatarFallback>
             </Avatar>
           </div>
 
-          {/* Actions */}
+          {/* Actions: ONLY Chat + Cancel Flow */}
           <div className="flex items-center space-x-2 ml-4">
-            {canJoin && (
-              <Button 
-                className="btn-primary"
-                onClick={() => onAction?.('join')}
-                data-testid="button-join-session"
-              >
-                <i className="fas fa-video mr-1"></i>
-                Join
-              </Button>
-            )}
-
-            {isUpcoming && session.status === 'scheduled' && !canJoin && (
-              <>
-                {userRole === 'tutor' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onAction?.('start')}
-                    data-testid="button-start-session"
-                  >
-                    <i className="fas fa-play mr-1"></i>
-                    Start
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onAction?.('reschedule')}
-                  data-testid="button-reschedule"
-                >
-                  <i className="fas fa-calendar-alt mr-1"></i>
-                  Reschedule
-                </Button>
-              </>
-            )}
-
-            {session.status === 'completed' && userRole === 'student' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onAction?.('review')}
-                data-testid="button-leave-review"
-              >
-                <i className="fas fa-star mr-1"></i>
-                Review
-              </Button>
-            )}
-
+            {/* Chat always available */}
             <Button
               variant="outline"
               size="sm"
               onClick={onChat}
               data-testid="button-chat"
             >
-              <i className="fas fa-comment"></i>
+              <i className="fas fa-comment" />
             </Button>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onAction?.('details')}
-              data-testid="button-details"
-            >
-              <i className="fas fa-info-circle"></i>
-            </Button>
+            {/* Initial cancel request */}
+            {showRequestCancelButton && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onAction?.("request_cancel")}
+                data-testid="button-request-cancel"
+              >
+                <i className="fas fa-ban mr-1" />
+                Cancel
+              </Button>
+            )}
+
+            {/* Respond to cancel request */}
+            {(tutorShouldRespondToCancel || studentShouldRespondToCancel) && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onAction?.("reject_cancel")}
+                  data-testid="button-keep-session"
+                >
+                  Keep
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onAction?.("accept_cancel")}
+                  data-testid="button-accept-cancel"
+                >
+                  Confirm Cancel
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Meeting Link (for in-progress sessions) */}
-        {session.status === 'in_progress' && session.meetingLink && (
-          <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-blue-800">
-                <i className="fas fa-video mr-2"></i>
-                Session is live
-              </span>
-              <Button 
-                size="sm" 
-                onClick={() => window.open(session.meetingLink, '_blank')}
-                data-testid="button-join-meeting"
-              >
-                Join Meeting
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Upcoming session reminder */}
-        {isToday && isUpcoming && (
+        {/* Today reminder */}
+        {isToday && isUpcoming && status === "scheduled" && (
           <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
             <div className="flex items-center space-x-2 text-sm text-yellow-800">
-              <i className="fas fa-bell"></i>
-              <span>Session starts today at {format(new Date(session.scheduledAt), 'HH:mm')}</span>
+              <i className="fas fa-bell" />
+              <span>
+                Session starts today at {format(scheduled, "HH:mm")}
+              </span>
             </div>
           </div>
         )}

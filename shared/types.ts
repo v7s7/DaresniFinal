@@ -1,130 +1,163 @@
-// Firebase Firestore Types for Tutoring Platform
+// shared/types.ts
+// Canonical Firestore-first types used across client & server.
+// NOTE: Dates are JS Date objects on the client; convert to Firestore Timestamp when persisting.
 
+export type UserRole = 'student' | 'tutor' | 'admin';
+
+/* =========================
+ *          USER
+ * =======================*/
 export interface User {
-  id: string; // Firebase Auth UID
+  id: string;                 // Firebase Auth UID
   email: string;
-  firstName: string | null;
-  lastName: string | null;
-  profileImageUrl: string | null;
-  role: 'student' | 'tutor' | 'admin';
-  // Tutor-specific fields for enhanced sign-up
+  firstName?: string;
+  lastName?: string;
+  profileImageUrl?: string | null;
+  role: UserRole;
+
+  // Tutor-related (optional at user level; full details live in TutorProfile)
   phone?: string;
   education?: string;
   experience?: string;
   bio?: string;
-  hourlyRate?: string;
+  hourlyRate?: number;        // prefer number here (use cents in Session for pricing)
   linkedinProfile?: string;
   certifications?: string;
   isVerified?: boolean;
   verificationStatus?: 'pending' | 'approved' | 'rejected';
-  createdAt: Date;
-  updatedAt: Date;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
+/* =========================
+ *        SUBJECT
+ * =======================*/
 export interface Subject {
   id: string;
   name: string;
-  description: string;
-  category: string;
-  createdAt: Date;
+  description?: string;
+  category?: string;
+  createdAt?: Date;
 }
 
+/* =========================
+ *      TUTOR PROFILE
+ * =======================*/
 export interface TutorProfile {
-  id: string; // Same as user ID
-  userId: string; // Reference to user
-  bio: string;
-  hourlyRate: number;
-  subjects: string[]; // Array of subject IDs
-  availability: {
-    [key: string]: { // Day of week (monday, tuesday, etc.)
-      startTime: string;
-      endTime: string;
+  id: string;                 // Firestore doc id for the tutor profile
+  userId: string;             // references User.id (Firebase UID)
+  bio?: string;
+  hourlyRate?: number;        // e.g., 15 (your currency unit)
+  subjects?: string[];        // array of Subject.id
+  availability?: {
+    [day: string]: {          // e.g., "monday", "tuesday", ...
+      startTime: string;      // "09:00"
+      endTime: string;        // "17:00"
       isAvailable: boolean;
     };
   };
-  verified: boolean;
-  rating: number;
-  totalReviews: number;
-  totalSessions: number;
-  profileImageUrl: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+  verified?: boolean;
+  rating?: number;
+  totalReviews?: number;
+  totalSessions?: number;
+  profileImageUrl?: string | null;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
-export interface Session {
-  id: string;
-  studentId: string;
-  tutorId: string;
-  subjectId: string;
-  title: string;
-  description: string;
-  scheduledDate: Date;
-  duration: number; // in minutes
-  status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
-  meetingUrl: string | null;
-  price: number;
-  createdAt: Date;
-  updatedAt: Date;
+/* =========================
+ *        SESSIONS
+ * =======================*/
+export type SessionStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface SessionDoc {
+  id?: string;                // Firestore doc id
+  studentId: string;          // User.id (Firebase UID)
+  tutorId: string;            // TutorProfile.id OR User.id (decide one and keep consistent)
+  subjectId: string;          // Subject.id
+  scheduledAt: Date;          // client uses Date; convert to Timestamp when saving
+  duration: number;           // minutes
+  status: SessionStatus;      // default 'scheduled'
+  meetingLink?: string | null;
+  notes?: string;             // optional free text
+  priceCents: number;         // store monetary values as integer cents
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
+/* =========================
+ *         REVIEWS
+ * =======================*/
 export interface Review {
-  id: string;
-  sessionId: string;
-  studentId: string;
-  tutorId: string;
-  rating: number;
-  comment: string;
-  createdAt: Date;
+  id?: string;
+  sessionId: string;          // SessionDoc.id
+  studentId: string;          // User.id
+  tutorId: string;            // TutorProfile.id or User.id (match your choice above)
+  rating: number;             // 1–5
+  comment?: string;
+  createdAt?: Date;
 }
 
+/* =========================
+ *         MESSAGES
+ * =======================*/
 export interface Message {
-  id: string;
-  senderId: string;
-  receiverId: string;
-  sessionId: string | null; // Optional, for session-specific messages
+  id?: string;
+  senderId: string;           // User.id
+  receiverId: string;         // User.id
+  sessionId?: string | null;  // optional link to a session
   content: string;
-  fileUrl: string | null;
-  read: boolean;
-  createdAt: Date;
+  fileUrl?: string | null;
+  read?: boolean;
+  createdAt?: Date;
 }
 
+/* =========================
+ *       FILE UPLOADS
+ * =======================*/
 export interface FileUpload {
-  id: string;
-  uploaderId: string;
+  id?: string;
+  uploaderId: string;         // User.id
   fileName: string;
   fileUrl: string;
-  fileSize: number;
-  mimeType: string;
-  sessionId: string | null; // Optional, for session-specific files
-  createdAt: Date;
+  fileSize?: number;
+  mimeType?: string;
+  sessionId?: string | null;
+  createdAt?: Date;
 }
 
-// Form types for creating/updating records
-export type CreateUser = Omit<User, 'createdAt' | 'updatedAt'> & {
-  // Make tutor fields explicitly optional for creation
-  phone?: string;
-  education?: string;
-  experience?: string;
-  bio?: string;
-  hourlyRate?: string;
-  linkedinProfile?: string;
-  certifications?: string;
-  isVerified?: boolean;
-  verificationStatus?: 'pending' | 'approved' | 'rejected';
-};
+/* =========================
+ *     CREATE / UPDATE DTOs
+ * =======================*/
+
+// Users
+export type CreateUser = Omit<User, 'id' | 'createdAt' | 'updatedAt'> & { id: string };
 export type UpdateUser = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>;
 
+// Subjects
 export type CreateSubject = Omit<Subject, 'id' | 'createdAt'>;
 export type UpdateSubject = Partial<Omit<Subject, 'id' | 'createdAt'>>;
 
-export type CreateTutorProfile = Omit<TutorProfile, 'id' | 'rating' | 'totalReviews' | 'totalSessions' | 'createdAt' | 'updatedAt'>;
+// Tutor Profiles
+export type CreateTutorProfile = Omit<TutorProfile, 'id' | 'createdAt' | 'updatedAt' | 'totalReviews' | 'totalSessions' | 'rating'> & {
+  id?: string;
+};
 export type UpdateTutorProfile = Partial<Omit<TutorProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>;
 
-export type CreateSession = Omit<Session, 'id' | 'status' | 'createdAt' | 'updatedAt'>;
-export type UpdateSession = Partial<Omit<Session, 'id' | 'createdAt' | 'updatedAt'>>;
+// Sessions (Booking)
+export type CreateSession = Omit<SessionDoc, 'id' | 'status' | 'createdAt' | 'updatedAt'> & {
+  status?: SessionStatus;     // default handled in code: 'scheduled'
+};
+export type UpdateSession = Partial<Omit<SessionDoc, 'id' | 'createdAt' | 'updatedAt'>>;
 
+// Reviews
 export type CreateReview = Omit<Review, 'id' | 'createdAt'>;
 
+// Messages
 export type CreateMessage = Omit<Message, 'id' | 'read' | 'createdAt'>;
 
+// Files
 export type CreateFileUpload = Omit<FileUpload, 'id' | 'createdAt'>;

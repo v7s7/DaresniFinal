@@ -1,55 +1,65 @@
-import { Resend } from 'resend';
-import nodemailer from 'nodemailer';
-import { db } from './db';
-import { users } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+// server/email.ts
+import { Resend } from "resend";
+import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
+import { fdb } from "./firebase-admin";
 
+// -------------------------------
 // Email service configuration
-let emailService: 'resend' | 'smtp' | null = null;
-let resend: Resend | null = null;
-let smtpTransporter: nodemailer.Transporter | null = null;
+// -------------------------------
+let emailService: "resend" | "smtp" | null = null;
+let resendClient: Resend | null = null;
+let smtpTransporter: nodemailer.Transporter<SMTPTransport.SentMessageInfo> | null = null;
 
-// Initialize email service based on environment variables
 if (process.env.RESEND_API_KEY) {
-  emailService = 'resend';
-  resend = new Resend(process.env.RESEND_API_KEY);
-  console.log('Email service initialized with Resend');
-} else if (process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS) {
-  emailService = 'smtp';
-  smtpTransporter = nodemailer.createTransporter({
+  emailService = "resend";
+  resendClient = new Resend(process.env.RESEND_API_KEY);
+  console.log("Email service initialized with Resend");
+} else if (
+  process.env.SMTP_HOST &&
+  process.env.SMTP_PORT &&
+  process.env.SMTP_USER &&
+  process.env.SMTP_PASS
+) {
+  emailService = "smtp";
+  const port = parseInt(process.env.SMTP_PORT, 10);
+  const secure = port === 465; // 465 = SMTPS
+
+  smtpTransporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT),
-    secure: process.env.SMTP_PORT === '465', // true for 465, false for other ports
+    port,
+    secure,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
   });
-  console.log('Email service initialized with SMTP');
+  console.log("Email service initialized with SMTP");
 } else {
-  console.warn('No email service configured. Set RESEND_API_KEY or SMTP credentials.');
+  console.warn("No email service configured. Set RESEND_API_KEY or SMTP credentials.");
 }
 
-interface EmailOptions {
+export interface EmailOptions {
   to: string[];
   subject: string;
   html: string;
   text?: string;
 }
 
-// Send email using configured service
+// -------------------------------
+/** Send email using configured service (Resend or SMTP). */
 export async function sendEmail(options: EmailOptions): Promise<void> {
   if (!emailService) {
-    console.warn('Email service not configured, skipping email send');
+    console.warn("Email service not configured, skipping email send");
     return;
   }
 
   try {
-    if (emailService === 'resend' && resend) {
-      const fromEmail = process.env.RESEND_FROM || 'Daresni <noreply@example.com>';
-      
+    if (emailService === "resend" && resendClient) {
+      const fromEmail = process.env.RESEND_FROM || "Daresni <noreply@example.com>";
+      // Resend supports single or multiple recipients; sending one-by-one is fine:
       for (const to of options.to) {
-        await resend.emails.send({
+        await resendClient.emails.send({
           from: fromEmail,
           to,
           subject: options.subject,
@@ -57,48 +67,49 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
           text: options.text,
         });
       }
-    } else if (emailService === 'smtp' && smtpTransporter) {
-      const fromEmail = process.env.SMTP_FROM || 'Daresni <noreply@example.com>';
-      
+    } else if (emailService === "smtp" && smtpTransporter) {
+      const fromEmail = process.env.SMTP_FROM || "Daresni <noreply@example.com>";
       await smtpTransporter.sendMail({
         from: fromEmail,
-        to: options.to.join(', '),
+        to: options.to.join(", "),
         subject: options.subject,
         html: options.html,
         text: options.text,
       });
     }
-    
-    console.log(`Email sent successfully to ${options.to.length} recipients: ${options.subject}`);
+
+    console.log(`Email sent successfully to ${options.to.length} recipient(s): ${options.subject}`);
   } catch (error) {
-    console.error('Failed to send email:', error);
+    console.error("Failed to send email:", error);
     throw error;
   }
 }
 
-// Get all admin email addresses from database
+// -------------------------------
+/** Get all admin emails from Firestore `users` where role == 'admin'. */
 export async function getAdminEmails(): Promise<string[]> {
   try {
-    const admins = await db
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.role, 'admin'));
-    
-    return admins
-      .map(admin => admin.email)
-      .filter((email): email is string => email !== null);
+    if (!fdb) {
+      console.warn("Firebase Admin not initialized; cannot load admin emails.");
+      return [];
+    }
+    const snap = await fdb.collection("users").where("role", "==", "admin").get();
+    return snap.docs
+      .map((d) => d.get("email") as string | undefined)
+      .filter((e): e is string => !!e);
   } catch (error) {
-    console.error('Failed to get admin emails:', error);
+    console.error("Failed to get admin emails:", error);
     return [];
   }
 }
 
-// Send email to all admins
+// -------------------------------
+/** Convenience helper to send to all admins. */
 export async function sendToAdmins(subject: string, html: string, text?: string): Promise<void> {
   const adminEmails = await getAdminEmails();
-  
+
   if (adminEmails.length === 0) {
-    console.warn('No admin emails found, skipping admin notification');
+    console.warn("No admin emails found, skipping admin notification");
     return;
   }
 
@@ -110,10 +121,15 @@ export async function sendToAdmins(subject: string, html: string, text?: string)
   });
 }
 
-// Template for tutor registration notification
-export function createTutorRegistrationEmail(tutorName: string, tutorEmail: string): { subject: string; html: string; text: string } {
-  const subject = 'New Tutor Registration - Daresni';
-  
+// -------------------------------
+/** HTML/text template for tutor registration notification. */
+export function createTutorRegistrationEmail(
+  tutorName: string,
+  tutorEmail: string
+): { subject: string; html: string; text: string } {
+  const subject = "New Tutor Registration - Daresni";
+  const adminUrl = `${process.env.FRONTEND_URL || "http://localhost:5000"}/admin`;
+
   const html = `
     <!DOCTYPE html>
     <html>
@@ -125,15 +141,16 @@ export function createTutorRegistrationEmail(tutorName: string, tutorEmail: stri
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
         .header { background-color: #9B1B30; color: white; padding: 20px; text-align: center; }
         .content { padding: 20px; background-color: #f9f9f9; }
-        .button { 
-          display: inline-block; 
-          background-color: #9B1B30; 
-          color: white; 
-          padding: 12px 24px; 
-          text-decoration: none; 
-          border-radius: 4px; 
+        .button {
+          display: inline-block;
+          background-color: #9B1B30;
+          color: white;
+          padding: 12px 24px;
+          text-decoration: none;
+          border-radius: 4px;
           margin: 10px 0;
         }
+        .muted { color: #777; font-size: 12px; margin-top: 16px; }
       </style>
     </head>
     <body>
@@ -146,26 +163,26 @@ export function createTutorRegistrationEmail(tutorName: string, tutorEmail: stri
           <p><strong>Tutor Name:</strong> ${tutorName}</p>
           <p><strong>Email:</strong> ${tutorEmail}</p>
           <p>Please review their profile and verify their credentials in the admin dashboard.</p>
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:5000'}/admin" class="button">Review in Admin Dashboard</a>
-          <p>Thank you for maintaining the quality of our tutoring platform!</p>
+          <a href="${adminUrl}" class="button">Review in Admin Dashboard</a>
+          <p class="muted">This is an automated message; please do not reply.</p>
         </div>
       </div>
     </body>
     </html>
   `;
-  
-  const text = `
-    New Tutor Registration - Daresni
-    
-    A new tutor has registered on Daresni!
-    
-    Tutor Name: ${tutorName}
-    Email: ${tutorEmail}
-    
-    Please review their profile and verify their credentials in the admin dashboard.
-    
-    Admin Dashboard: ${process.env.FRONTEND_URL || 'http://localhost:5000'}/admin
-  `;
-  
+
+  const text = [
+    "New Tutor Registration - Daresni",
+    "",
+    "A new tutor has registered on Daresni!",
+    "",
+    `Tutor Name: ${tutorName}`,
+    `Email: ${tutorEmail}`,
+    "",
+    "Please review their profile and verify their credentials in the admin dashboard.",
+    "",
+    `Admin Dashboard: ${adminUrl}`,
+  ].join("\n");
+
   return { subject, html, text };
 }
